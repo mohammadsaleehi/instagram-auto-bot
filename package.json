@@ -1,0 +1,31 @@
+{
+  "name": "instagram-auto-bot",
+  "version": "1.0.0",
+  "description": "Minimal Instagram login and session persistence bot using Playwright",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "login": "node src/scripts/login.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "captcha:demo": "node examples/google-recaptcha-demo.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "instagram",
+    "playwright",
+    "automation",
+    "login"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.50.1"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}

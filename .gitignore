@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+credentials.json
+**/credentials*.json
+
+# Instagram auth / session / cookie / token exports
+data/instagram-auth.json
+**/instagram-auth*.json
+*storage-state*.json
+*cookies*.json
+data/.*.tmp
+data/*.tmp
+*.instagram-auth*.tmp
+
+# Browser profiles and temporary browser data
+sessions/
+**/user-data-dir/
+**/chrome-profile/
+**/Default/Cookies
+**/Default/Login Data
+**/Default/Web Data
+
+# Logs and test / Playwright artifacts
+*.log
+logs/
+playwright-report/
+test-results/
+coverage/
+.vitest/
