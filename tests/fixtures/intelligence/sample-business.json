@@ -1,0 +1,20 @@
+{
+  "kind": "business",
+  "name": "Demo Business",
+  "payload": {
+    "products": ["Starter Kit", "Pro Plan"],
+    "services": ["Onboarding"],
+    "productPriorities": ["Starter Kit"],
+    "salesObjectives": ["Increase qualified leads"],
+    "marketingObjectives": ["Improve Story engagement"],
+    "activeCampaigns": ["Spring awareness"],
+    "approvedCommercialOffers": ["Free shipping over $50"],
+    "budgetConstraints": {
+      "monthlyAds": 0
+    },
+    "operationalRestrictions": [
+      "Do not invent discounts",
+      "Do not change prices without owner approval"
+    ]
+  }
+}

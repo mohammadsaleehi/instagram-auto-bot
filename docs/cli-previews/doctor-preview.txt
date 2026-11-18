@@ -1,0 +1,33 @@
+
+SYSTEM DIAGNOSTICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ENVIRONMENT
+  ✓ Node.js version
+    Node.js 22.22.1
+  ✓ Configuration valid
+    mode=existing · tz=Europe/Berlin
+
+DATABASE
+  ✓ SQLite connection & integrity
+    schema v1 · integrity ok
+
+BROWSER
+  ✓ Browser availability
+    existing mode uses CDP
+  ✓ Browser connection
+    mode=existing
+
+AUTHENTICATION
+  ✓ Session file availability
+    not required for current browser mode
+  ✓ Instagram authentication
+
+RUNTIME & STORAGE
+  ✓ Runtime control channel
+    Bot runtime is reachable
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  RESULT: ALL CHECKS PASSED
+  8 checks passed · 0 warnings · 0 failures

@@ -17,6 +17,19 @@ data/.*.tmp
 data/*.tmp
 *.instagram-auth*.tmp
 
+# SQLite database and runtime control IPC
+data/*.sqlite
+data/*.sqlite-*
+data/bot.sock
+data/bot.control-token
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Local media library (content management)
+data/media/
+media/
+
 # Browser profiles and temporary browser data
 sessions/
 **/user-data-dir/
@@ -32,3 +45,14 @@ playwright-report/
 test-results/
 coverage/
 .vitest/
+
+# Local OpenRouter / network diagnostics (never commit)
+**/openrouter-diag/
+*.diag.json
+*.diag.txt
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~

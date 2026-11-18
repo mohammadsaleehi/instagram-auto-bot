@@ -1,0 +1,16 @@
+
+TASK QUEUE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Shown: 1     Pending: 0     Running: 0
+  Completed: 1  Failed: 0      Attention: 0
+
+  ID         TYPE                            STATUS           PRIORITY  
+  ──────────────────────────────────────────────────────────────────────
+  3806eb0f   engine.health-check             COMPLETED        Normal    
+
+  CREATED            ATTEMPTS     RESULT                                
+  ──────────────────────────────────────────────────────────────────────
+  Nov 10, 17:14      1 / 3        Success                               
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Showing 1 task

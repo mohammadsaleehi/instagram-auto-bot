@@ -1,0 +1,33 @@
+
+SYSTEM DIAGNOSTICS
+============================================================
+
+ENVIRONMENT
+  + Node.js version
+    Node.js 22.22.1 (node:sqlite is experimental in this Node release)
+  + Configuration valid
+    mode=existing · tz=Europe/Berlin
+
+DATABASE
+  + SQLite connection & integrity
+    schema v1 · integrity ok
+
+AUTHENTICATION
+  + Session file availability
+    not required for current browser mode
+
+BROWSER
+  + Browser availability
+    existing mode uses CDP; enable chrome://inspect/#remote-debugging
+
+RUNTIME & STORAGE
+  + Control socket permissions
+    Socket absent (bot not running) — OK for offline doctor
+  ! Runtime control channel
+    Bot control socket not found at /home/mohammad/Work/Instagram-Auto-Bot/data/bot.sock. Is the bot running? Start it with: npm start
+    Hint: Start the bot with npm start to enable live diagnostics.
+
+============================================================
+
+  RESULT: PASSED WITH WARNINGS
+  6 checks passed · 1 warnings · 0 failures

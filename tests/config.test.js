@@ -30,6 +30,75 @@ describe('loadConfig', () => {
       path.resolve(PROJECT_ROOT, './data/instagram-auth.json'),
     );
     expect(config.authStateSaveIntervalMs).toBe(300_000);
+    expect(config.appTimezone).toBe('Europe/Berlin');
+    expect(config.workerConcurrency).toBe(1);
+    expect(config.taskMaxAttempts).toBe(3);
+    expect(config.taskRetryBaseMs).toBe(5_000);
+    expect(config.taskRetryMaxMs).toBe(300_000);
+    expect(config.taskStaleTimeoutMs).toBe(60_000);
+    expect(config.taskShutdownTimeoutMs).toBe(30_000);
+    expect(config.databasePath).toBe(
+      path.resolve(PROJECT_ROOT, './data/bot.sqlite'),
+    );
+    expect(config.mediaLibraryDir).toBe(
+      path.resolve(PROJECT_ROOT, './data/media'),
+    );
+    expect(config.publishingAdapter).toBe('mock');
+    expect(config.contentDryRun).toBe(true);
+    expect(config.instagramGraphAccessToken).toBeNull();
+    expect(config.instagramBusinessAccountId).toBeNull();
+    expect(config.instagramGraphLoginFlow).toBe('facebook');
+    expect(config.instagramGraphApiVersion).toBe('v21.0');
+    expect(config.mediaPublicBaseUrl).toBeNull();
+    expect(config.aiProvider).toBe('openrouter');
+    expect(config.openrouterApiKey).toBeNull();
+    expect(config.openrouterBaseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(config.openrouterModel).toBeNull();
+    expect(config.openrouterFallbackModels).toEqual([]);
+    expect(config.openrouterAppName).toBe('Instagram Automation Agent');
+    expect(config.aiRequestTimeoutMs).toBe(60_000);
+    expect(config.aiMaxToolIterations).toBe(8);
+    expect(config.aiMaxRetries).toBe(2);
+  });
+
+  it('parses OpenRouter intelligence configuration', () => {
+    const config = loadConfig({
+      AI_PROVIDER: 'openrouter',
+      OPENROUTER_API_KEY: 'test-key',
+      OPENROUTER_MODEL: 'openai/gpt-4o-mini',
+      OPENROUTER_FALLBACK_MODELS: 'anthropic/claude-sonnet,google/gemini-flash',
+      OPENROUTER_APP_NAME: 'Test Agent',
+    });
+    expect(config.openrouterApiKey).toBe('test-key');
+    expect(config.openrouterModel).toBe('openai/gpt-4o-mini');
+    expect(config.openrouterFallbackModels).toEqual([
+      'anthropic/claude-sonnet',
+      'google/gemini-flash',
+    ]);
+    expect(config.openrouterAppName).toBe('Test Agent');
+  });
+
+  it('rejects invalid AI_PROVIDER', () => {
+    expect(() => loadConfig({ AI_PROVIDER: 'openai' })).toThrow(ConfigError);
+  });
+
+  it('parses Instagram Login Graph flow and HTTPS media base URL', () => {
+    const config = loadConfig({
+      INSTAGRAM_GRAPH_LOGIN_FLOW: 'instagram',
+      MEDIA_PUBLIC_BASE_URL: 'https://cdn.example.com/media/',
+    });
+    expect(config.instagramGraphLoginFlow).toBe('instagram');
+    expect(config.mediaPublicBaseUrl).toBe('https://cdn.example.com/media');
+  });
+
+  it('rejects non-HTTPS MEDIA_PUBLIC_BASE_URL', () => {
+    expect(() =>
+      loadConfig({ MEDIA_PUBLIC_BASE_URL: 'http://cdn.example.com/media' }),
+    ).toThrow(ConfigError);
+  });
+
+  it('rejects invalid APP_TIMEZONE', () => {
+    expect(() => loadConfig({ APP_TIMEZONE: 'Not/AZone' })).toThrow(ConfigError);
   });
 
   it('defaults browser mode to existing and channel to chrome', () => {

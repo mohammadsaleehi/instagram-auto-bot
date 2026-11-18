@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { resolveDatabasePath, DEFAULT_DATABASE_PATH } from '../storage/database.js';
 
 dotenv.config();
 
@@ -16,6 +17,50 @@ const LAUNCH_X11_USER_DATA_DIR = './sessions/instagram-x11';
 const DEFAULT_USER_DATA_DIR = './sessions/instagram';
 const DEFAULT_AUTH_STORAGE_STATE_PATH = './data/instagram-auth.json';
 const DEFAULT_AUTH_STATE_SAVE_INTERVAL_MS = 300_000;
+const DEFAULT_APP_TIMEZONE = 'Europe/Berlin';
+const DEFAULT_CONTROL_SOCKET_PATH = './data/bot.sock';
+const DEFAULT_CONTROL_TOKEN_PATH = './data/bot.control-token';
+const DEFAULT_MEDIA_LIBRARY_DIR = './data/media';
+const VALID_PUBLISHING_ADAPTERS = new Set(['mock', 'instagram-graph', 'instagram', 'official']);
+const VALID_GRAPH_LOGIN_FLOWS = new Set(['facebook', 'instagram', 'facebook-login', 'instagram-login']);
+const DEFAULT_GRAPH_API_VERSION = 'v21.0';
+const VALID_AI_PROVIDERS = new Set(['openrouter', 'mock']);
+const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const DEFAULT_AI_REQUEST_TIMEOUT_MS = 60_000;
+const DEFAULT_AI_MAX_TOOL_ITERATIONS = 8;
+const DEFAULT_AI_MAX_RETRIES = 2;
+
+/**
+ * @param {string | undefined} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function parseAiProvider(value, fallback) {
+  if (value === undefined || value === '') {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!VALID_AI_PROVIDERS.has(normalized)) {
+    throw new ConfigError(
+      `Invalid AI_PROVIDER: "${value}". Expected one of: ${[...VALID_AI_PROVIDERS].join(', ')}`,
+    );
+  }
+  return normalized;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {string[]}
+ */
+function parseCommaSeparatedList(value) {
+  if (value === undefined || value === '') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
 
 /**
  * @param {string | undefined} value
@@ -202,6 +247,94 @@ function resolveAuthStorageStatePath(value, fallback) {
 }
 
 /**
+ * @param {string | undefined} value
+ * @param {string} projectRoot
+ * @param {string} fallback
+ * @returns {string}
+ */
+function resolveProjectPath(value, projectRoot, fallback) {
+  const raw = value === undefined || value === '' ? fallback : value.trim();
+  return path.isAbsolute(raw) ? raw : path.resolve(projectRoot, raw);
+}
+
+/**
+ * @param {string | undefined} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function parseTimezone(value, fallback) {
+  const candidate = (value === undefined || value === '' ? fallback : value).trim();
+  try {
+    // Throws RangeError for invalid IANA time zones.
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date());
+  } catch {
+    throw new ConfigError(
+      `Invalid APP_TIMEZONE: "${candidate}". Expected a valid IANA time zone (e.g. Europe/Berlin).`,
+    );
+  }
+  return candidate;
+}
+
+/**
+ * @param {string | undefined} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function parsePublishingAdapter(value, fallback) {
+  const candidate = (value === undefined || value === '' ? fallback : value).trim().toLowerCase();
+  if (!VALID_PUBLISHING_ADAPTERS.has(candidate)) {
+    throw new ConfigError(
+      `Invalid PUBLISHING_ADAPTER: "${value}". Expected one of: mock, instagram-graph.`,
+    );
+  }
+  if (candidate === 'instagram' || candidate === 'official') {
+    return 'instagram-graph';
+  }
+  return candidate;
+}
+
+/**
+ * @param {string | undefined} value
+ * @param {string} fallback
+ * @returns {'facebook' | 'instagram'}
+ */
+function parseGraphLoginFlow(value, fallback) {
+  const candidate = (value === undefined || value === '' ? fallback : value).trim().toLowerCase();
+  if (!VALID_GRAPH_LOGIN_FLOWS.has(candidate)) {
+    throw new ConfigError(
+      `Invalid INSTAGRAM_GRAPH_LOGIN_FLOW: "${value}". Expected facebook or instagram.`,
+    );
+  }
+  if (candidate === 'instagram' || candidate === 'instagram-login') {
+    return 'instagram';
+  }
+  return 'facebook';
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {string | null}
+ */
+function parseOptionalHttpsBaseUrl(value) {
+  if (value === undefined || value === '') {
+    return null;
+  }
+  const trimmed = value.trim().replace(/\/$/, '');
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new ConfigError(`Invalid MEDIA_PUBLIC_BASE_URL: "${value}"`);
+  }
+  if (url.protocol !== 'https:') {
+    throw new ConfigError(
+      `Invalid MEDIA_PUBLIC_BASE_URL: must use HTTPS (got ${url.protocol})`,
+    );
+  }
+  return trimmed;
+}
+
+/**
  * Optional CDP endpoint for existing-browser mode.
  * Defaults to the browser channel name (e.g. "chrome").
  *
@@ -250,6 +383,19 @@ export class ConfigError extends Error {
  *   username: string | null,
  *   password: string | null,
  *   projectRoot: string,
+ *   appTimezone: string,
+ *   workerConcurrency: number,
+ *   taskMaxAttempts: number,
+ *   taskRetryBaseMs: number,
+ *   taskRetryMaxMs: number,
+ *   taskStaleTimeoutMs: number,
+ *   taskShutdownTimeoutMs: number,
+ *   workerPollIntervalMs: number,
+ *   schedulerPollIntervalMs: number,
+ *   sessionMonitorIntervalMs: number,
+ *   databasePath: string,
+ *   controlSocketPath: string,
+ *   controlTokenPath: string,
  * }>}
  */
 export function loadConfig(env = process.env) {
@@ -335,6 +481,138 @@ export function loadConfig(env = process.env) {
     username,
     password,
     projectRoot: PROJECT_ROOT,
+    appTimezone: parseTimezone(env.APP_TIMEZONE, DEFAULT_APP_TIMEZONE),
+    workerConcurrency: parsePositiveInteger(
+      env.WORKER_CONCURRENCY,
+      1,
+      'WORKER_CONCURRENCY',
+    ),
+    taskMaxAttempts: parsePositiveInteger(
+      env.TASK_MAX_ATTEMPTS,
+      3,
+      'TASK_MAX_ATTEMPTS',
+    ),
+    taskRetryBaseMs: parsePositiveInteger(
+      env.TASK_RETRY_BASE_MS,
+      5_000,
+      'TASK_RETRY_BASE_MS',
+    ),
+    taskRetryMaxMs: parsePositiveInteger(
+      env.TASK_RETRY_MAX_MS,
+      300_000,
+      'TASK_RETRY_MAX_MS',
+    ),
+    taskStaleTimeoutMs: parsePositiveInteger(
+      env.TASK_STALE_TIMEOUT_MS,
+      60_000,
+      'TASK_STALE_TIMEOUT_MS',
+    ),
+    taskShutdownTimeoutMs: parsePositiveInteger(
+      env.TASK_SHUTDOWN_TIMEOUT_MS,
+      30_000,
+      'TASK_SHUTDOWN_TIMEOUT_MS',
+    ),
+    workerPollIntervalMs: parsePositiveInteger(
+      env.WORKER_POLL_INTERVAL_MS,
+      1_000,
+      'WORKER_POLL_INTERVAL_MS',
+    ),
+    schedulerPollIntervalMs: parsePositiveInteger(
+      env.SCHEDULER_POLL_INTERVAL_MS,
+      1_000,
+      'SCHEDULER_POLL_INTERVAL_MS',
+    ),
+    sessionMonitorIntervalMs: parsePositiveInteger(
+      env.SESSION_MONITOR_INTERVAL_MS,
+      30_000,
+      'SESSION_MONITOR_INTERVAL_MS',
+    ),
+    databasePath: resolveDatabasePath(
+      env.DATABASE_PATH,
+      PROJECT_ROOT,
+      DEFAULT_DATABASE_PATH,
+    ),
+    controlSocketPath: resolveProjectPath(
+      env.CONTROL_SOCKET_PATH,
+      PROJECT_ROOT,
+      DEFAULT_CONTROL_SOCKET_PATH,
+    ),
+    controlTokenPath: resolveProjectPath(
+      env.CONTROL_TOKEN_PATH,
+      PROJECT_ROOT,
+      DEFAULT_CONTROL_TOKEN_PATH,
+    ),
+    mediaLibraryDir: resolveProjectPath(
+      env.MEDIA_LIBRARY_DIR,
+      PROJECT_ROOT,
+      DEFAULT_MEDIA_LIBRARY_DIR,
+    ),
+    publishingAdapter: parsePublishingAdapter(env.PUBLISHING_ADAPTER, 'mock'),
+    contentDryRun: parseBoolean(env.CONTENT_DRY_RUN, true),
+    instagramGraphAccessToken:
+      env.INSTAGRAM_GRAPH_ACCESS_TOKEN === undefined ||
+      env.INSTAGRAM_GRAPH_ACCESS_TOKEN === ''
+        ? null
+        : env.INSTAGRAM_GRAPH_ACCESS_TOKEN,
+    instagramBusinessAccountId:
+      env.INSTAGRAM_BUSINESS_ACCOUNT_ID === undefined ||
+      env.INSTAGRAM_BUSINESS_ACCOUNT_ID === ''
+        ? null
+        : env.INSTAGRAM_BUSINESS_ACCOUNT_ID,
+    instagramGraphLoginFlow: parseGraphLoginFlow(
+      env.INSTAGRAM_GRAPH_LOGIN_FLOW,
+      'facebook',
+    ),
+    instagramGraphApiVersion:
+      env.INSTAGRAM_GRAPH_API_VERSION === undefined ||
+      env.INSTAGRAM_GRAPH_API_VERSION === ''
+        ? DEFAULT_GRAPH_API_VERSION
+        : env.INSTAGRAM_GRAPH_API_VERSION.trim(),
+    instagramGraphApiBaseUrl:
+      env.INSTAGRAM_GRAPH_API_BASE_URL === undefined ||
+      env.INSTAGRAM_GRAPH_API_BASE_URL === ''
+        ? null
+        : env.INSTAGRAM_GRAPH_API_BASE_URL.trim().replace(/\/$/, ''),
+    mediaPublicBaseUrl: parseOptionalHttpsBaseUrl(env.MEDIA_PUBLIC_BASE_URL),
+    aiProvider: parseAiProvider(env.AI_PROVIDER, 'openrouter'),
+    openrouterApiKey:
+      env.OPENROUTER_API_KEY === undefined || env.OPENROUTER_API_KEY === ''
+        ? null
+        : env.OPENROUTER_API_KEY,
+    openrouterBaseUrl:
+      env.OPENROUTER_BASE_URL === undefined || env.OPENROUTER_BASE_URL === ''
+        ? DEFAULT_OPENROUTER_BASE_URL
+        : env.OPENROUTER_BASE_URL.trim().replace(/\/$/, ''),
+    openrouterModel:
+      env.OPENROUTER_MODEL === undefined || env.OPENROUTER_MODEL === ''
+        ? null
+        : env.OPENROUTER_MODEL.trim(),
+    openrouterFallbackModels: Object.freeze(
+      parseCommaSeparatedList(env.OPENROUTER_FALLBACK_MODELS),
+    ),
+    openrouterAppName:
+      env.OPENROUTER_APP_NAME === undefined || env.OPENROUTER_APP_NAME === ''
+        ? 'Instagram Automation Agent'
+        : env.OPENROUTER_APP_NAME.trim(),
+    openrouterAppUrl:
+      env.OPENROUTER_APP_URL === undefined || env.OPENROUTER_APP_URL === ''
+        ? null
+        : env.OPENROUTER_APP_URL.trim(),
+    aiRequestTimeoutMs: parsePositiveInteger(
+      env.AI_REQUEST_TIMEOUT_MS,
+      DEFAULT_AI_REQUEST_TIMEOUT_MS,
+      'AI_REQUEST_TIMEOUT_MS',
+    ),
+    aiMaxToolIterations: parsePositiveInteger(
+      env.AI_MAX_TOOL_ITERATIONS,
+      DEFAULT_AI_MAX_TOOL_ITERATIONS,
+      'AI_MAX_TOOL_ITERATIONS',
+    ),
+    aiMaxRetries: parsePositiveInteger(
+      env.AI_MAX_RETRIES,
+      DEFAULT_AI_MAX_RETRIES,
+      'AI_MAX_RETRIES',
+    ),
   });
 
   return config;
@@ -349,5 +627,12 @@ export {
   LAUNCH_X11_USER_DATA_DIR,
   DEFAULT_AUTH_STORAGE_STATE_PATH,
   DEFAULT_AUTH_STATE_SAVE_INTERVAL_MS,
+  DEFAULT_APP_TIMEZONE,
+  DEFAULT_DATABASE_PATH,
+  DEFAULT_CONTROL_SOCKET_PATH,
+  DEFAULT_CONTROL_TOKEN_PATH,
+  DEFAULT_MEDIA_LIBRARY_DIR,
+  DEFAULT_OPENROUTER_BASE_URL,
+  VALID_AI_PROVIDERS,
   parseBrowserPlatform,
 };

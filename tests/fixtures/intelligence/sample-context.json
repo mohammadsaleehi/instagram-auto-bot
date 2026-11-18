@@ -1,0 +1,17 @@
+{
+  "kind": "brand",
+  "name": "Demo Brand",
+  "payload": {
+    "brandName": "Demo Brand",
+    "businessCategory": "Retail",
+    "brandDescription": "A sample brand used for Intelligence Core tests.",
+    "communicationTone": "clear and professional",
+    "targetAudience": ["online shoppers"],
+    "uniqueSellingPropositions": ["fast support", "quality products"],
+    "contentGuidelines": ["no unverified claims"],
+    "brandRestrictions": ["no unauthorized discounts"],
+    "officialLinks": {
+      "website": "https://example.com"
+    }
+  }
+}

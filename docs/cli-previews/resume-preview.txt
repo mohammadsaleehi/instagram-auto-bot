@@ -1,0 +1,6 @@
+
+  Instagram Automation Bot
+
+  ✓ Worker resumed successfully.
+
+  Task processing is active.

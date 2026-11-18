@@ -1,0 +1,38 @@
+
+╭──────────────────────────────────────────────────────────╮
+│                 INSTAGRAM AUTOMATION BOT                 │
+│                     System Overview                      │
+╰──────────────────────────────────────────────────────────╯
+
+APPLICATION
+  ●  Status                 RUNNING
+  ◷  Started                Nov 10, 2026 · 17:14:08
+
+BROWSER & ACCOUNT
+  ●  Browser                Connected
+  ├─ Mode                   Existing Chrome (CDP)
+  ●  Instagram              AUTHENTICATED
+  └─ Last checked           Just now
+
+TASK ENGINE
+  ●  Worker                 RUNNING
+  ●  Processing             Idle
+  ├─ Pending                0
+  ├─ Completed              1
+  ├─ Failed                 0
+  └─ Needs attention        0
+
+LAST SUCCESSFUL TASK
+  ├─ Type                   engine.health-check
+  ├─ Completed              Nov 10, 2026 · 17:14:24
+  └─ ID                     3806eb0f-5f71-4437-96d6-9abec59442d2
+
+DATABASE
+  ●  Connection             Healthy
+  ●  Integrity              Passed
+
+SESSION
+  ◷  Last persistence       Not applicable (CDP mode)
+
+──────────────────────────────────────────────────────────
+  Overall health: HEALTHY

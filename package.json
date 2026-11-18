@@ -1,29 +1,52 @@
 {
   "name": "instagram-auto-bot",
   "version": "1.0.0",
-  "description": "Minimal Instagram login and session persistence bot using Playwright",
+  "description": "Single-account Instagram automation engine with Playwright and a persistent task queue",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "login": "node src/scripts/login.js",
+    "start": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/index.js",
+    "login": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/scripts/login.js",
+    "status": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/status.js",
+    "pause": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/pause.js",
+    "resume": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/resume.js",
+    "jobs": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/jobs.js",
+    "doctor": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/doctor.js",
+    "content:list": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-list.js",
+    "content:create": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-create.js",
+    "content:show": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-show.js",
+    "content:approve": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-approve.js",
+    "content:schedule": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-schedule.js",
+    "content:cancel": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-cancel.js",
+    "content:history": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/content-history.js",
+    "story:create": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-create.js",
+    "story:list": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-list.js",
+    "story:show": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-show.js",
+    "story:approve": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-approve.js",
+    "story:schedule": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-schedule.js",
+    "story:cancel": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-cancel.js",
+    "story:history": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/story-history.js",
+    "agent": "node --disable-warning=ExperimentalWarning --import ./src/cli/ui/register-warnings.js src/cli/commands/agent.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "captcha:demo": "node examples/google-recaptcha-demo.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "keywords": [
     "instagram",
     "playwright",
     "automation",
-    "login"
+    "login",
+    "task-queue"
   ],
   "license": "MIT",
   "dependencies": {
     "dotenv": "^16.4.7",
-    "playwright": "^1.50.1"
+    "openai": "^7.57.0",
+    "playwright": "^1.50.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "vitest": "^3.0.5"

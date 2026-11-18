@@ -1,0 +1,7 @@
+
+  Instagram Automation Bot
+
+  ✓ Worker paused successfully.
+
+  New tasks will not be claimed.
+  The current task is handled according to its cancellation and safety policy.

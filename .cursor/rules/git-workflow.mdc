@@ -1,0 +1,37 @@
+---
+description: Mandatory Git commit and GitHub push workflow for every meaningful change
+alwaysApply: true
+---
+
+# Permanent Git Workflow
+
+Git is mandatory for this project. Remote: `git@github.com:mohammadsaleehi/instagram-auto-bot.git` (`origin`, SSH).
+
+After any meaningful change (feature, fix, refactor, tests, docs, config templates):
+
+1. Implement the change.
+2. Run relevant tests/checks; report failures honestly.
+3. Review the full diff.
+4. Audit for secrets and unintended files.
+5. Stage only relevant files (never blind `git add .` without inspection).
+6. Create a Conventional Commit.
+7. Push to GitHub (`origin`) and verify the remote commit.
+8. Confirm the working tree state afterward.
+
+## Commit style
+
+- `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`
+- Prefer small, focused commits; do not batch unrelated features.
+
+## Hard prohibitions
+
+- Never commit `.env`, API keys, tokens, Instagram sessions, browser profiles, SQLite/runtime data, or credentials.
+- Never force push or rewrite shared history without explicit authorization.
+- Never claim commit/push success without verification.
+- Preserve user modifications; no destructive resets/reverts unless requested.
+
+## Pre-commit security checklist
+
+- `.env` / `.env.*` ignored (except `.env.example` placeholders)
+- No secrets in staged diffs
+- `data/*.sqlite`, `sessions/`, auth JSON, control tokens remain untracked

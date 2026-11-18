@@ -1,0 +1,7 @@
+
+  Instagram Automation Bot
+
+  x Unable to reach the running bot.
+  Bot control socket not found at /home/mohammad/Work/Instagram-Auto-Bot/data/bot.sock. Is the bot running? Start it with: npm start
+
+  Start the application with: npm start

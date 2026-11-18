@@ -1,0 +1,90 @@
+import path from 'node:path';
+import { ContentRepository } from './content-repository.js';
+import { ContentService } from './content-service.js';
+import { MediaManager } from './media-manager.js';
+import {
+  createPublishingAdapter,
+} from './publishing/publishing-adapter.js';
+import {
+  createMediaPublicUrlResolver,
+} from './publishing/media-host.js';
+import {
+  PublishingService,
+  createContentPublishHandler,
+} from './publishing/publishing-service.js';
+import { DEFAULT_MEDIA_LIBRARY_DIR } from './constants.js';
+
+/**
+ * Factory that wires the content-management module for Application / CLI.
+ *
+ * @param {{
+ *   database: import('../../storage/database.js').Database,
+ *   config?: Record<string, unknown>,
+ *   scheduleRepository?: import('../../storage/repositories/schedule-repository.js').ScheduleRepository | null,
+ *   taskRepository?: import('../../storage/repositories/task-repository.js').TaskRepository | null,
+ *   nowFn?: () => Date,
+ *   fetchFn?: typeof fetch,
+ * }} options
+ */
+export function createContentManager(options) {
+  const config = options.config ?? {};
+  const projectRoot = String(config.projectRoot ?? process.cwd());
+  const mediaDir = path.isAbsolute(String(config.mediaLibraryDir ?? DEFAULT_MEDIA_LIBRARY_DIR))
+    ? String(config.mediaLibraryDir ?? DEFAULT_MEDIA_LIBRARY_DIR)
+    : path.resolve(projectRoot, String(config.mediaLibraryDir ?? DEFAULT_MEDIA_LIBRARY_DIR));
+
+  const repository = new ContentRepository(options.database, {
+    nowFn: options.nowFn,
+  });
+  const mediaManager = new MediaManager({
+    mediaDir,
+    constraints: config.mediaConstraints,
+  });
+
+  const mediaHost = createMediaPublicUrlResolver({
+    mediaPublicBaseUrl: config.mediaPublicBaseUrl ?? null,
+    mediaLibraryDir: mediaDir,
+  });
+
+  const adapter = createPublishingAdapter({
+    adapter: String(config.publishingAdapter ?? 'mock'),
+    accessToken: config.instagramGraphAccessToken ?? null,
+    igUserId: config.instagramBusinessAccountId ?? null,
+    loginFlow: config.instagramGraphLoginFlow ?? 'facebook',
+    graphApiBaseUrl: config.instagramGraphApiBaseUrl ?? undefined,
+    apiVersion: config.instagramGraphApiVersion ?? undefined,
+    mediaPublicUrlResolver: mediaHost,
+    fetchFn: options.fetchFn,
+  });
+
+  const publishingService = new PublishingService({
+    repository,
+    adapter,
+    dryRunDefault: Boolean(config.contentDryRun ?? true),
+    nowFn: options.nowFn,
+  });
+
+  const service = new ContentService({
+    repository,
+    mediaManager,
+    publishingService,
+    scheduleRepository: options.scheduleRepository ?? null,
+    taskRepository: options.taskRepository ?? null,
+    timezone: String(config.appTimezone ?? 'Europe/Berlin'),
+    nowFn: options.nowFn,
+  });
+
+  return {
+    repository,
+    mediaManager,
+    mediaHost,
+    publishingService,
+    service,
+    adapter,
+    publishHandler: createContentPublishHandler({ publishingService }),
+  };
+}
+
+export { ContentService } from './content-service.js';
+export { ContentRepository } from './content-repository.js';
+export { MediaManager } from './media-manager.js';

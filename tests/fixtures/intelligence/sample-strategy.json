@@ -1,0 +1,19 @@
+{
+  "kind": "strategy",
+  "name": "Demo Strategy",
+  "payload": {
+    "primaryInstagramObjectives": ["Grow engaged audience", "Support product launches"],
+    "shortTermObjectives": ["Improve Story completion rate"],
+    "longTermObjectives": ["Sustainable organic growth"],
+    "marketingPriorities": ["Educational content", "Product demos"],
+    "contentPublishingPolicies": ["Owner approval required before publishing"],
+    "targetAudience": ["online shoppers"],
+    "aiDecisionMakingBoundaries": [
+      "Operational recommendations only",
+      "No silent strategy changes",
+      "No unauthorized commercial claims"
+    ],
+    "successMetrics": ["Story replies", "Profile visits"],
+    "kpis": ["weekly story engagement"]
+  }
+}

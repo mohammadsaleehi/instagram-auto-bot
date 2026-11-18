@@ -22,7 +22,7 @@ function isPlainObject(value) {
  */
 function sanitize(value, key = '') {
   const sensitiveKey =
-    /^(pass(word)?|secret|token|cookie|authorization|storage.?state|session|username|credentials?|INSTAGRAM_USERNAME|INSTAGRAM_PASSWORD)$/i;
+    /^(pass(word)?|secret|token|cookie|authorization|storage.?state|session|username|credentials?|api.?key|openrouter.?api.?key|INSTAGRAM_USERNAME|INSTAGRAM_PASSWORD|OPENROUTER_API_KEY)$/i;
 
   if (sensitiveKey.test(key)) {
     return '[REDACTED]';
