@@ -16,7 +16,7 @@ By default the bot attaches to your already-running Google Chrome instance over 
 - Expose local operator commands: `status`, `pause`, `resume`, `jobs`, `doctor`
 - Manage content drafts, media, approvals, schedules, and publishing history for one account
 - Manage and publish Instagram Stories (IMAGE / VIDEO) through the same Content Manager
-- Publish through a mock adapter (dev/test) or the official Instagram Graph Content Publishing API
+- Publish Stories through Playwright browser automation (Phase 1), a mock adapter (dev/test), or optionally the official Instagram Graph Content Publishing API
 
 No mass following/liking, bulk unsolicited messaging, scraping of other users' personal data, CAPTCHA bypass, anti-detection features, or Instagram Highlights automation are implemented.
 
@@ -241,6 +241,28 @@ Schedules reuse the Phase 2 `schedules` table and enqueue `content.publish` when
 
 Phase 3.2 adds Story management on the **same** Content Manager, SQLite database, scheduler, and `content.publish` task type. There is no second queue or Highlights subsystem.
 
+### Browser Story publishing (Phase 1)
+
+Preferred path for this project: Playwright UI automation against your logged-in session (not Graph API).
+
+```bash
+npm run media:init
+# place JPEG/PNG files in media/stories/pending/
+npm run media:list
+npm run media:inspect -- story-01.jpg
+
+# Engine terminal:
+# PUBLISHING_ADAPTER=playwright
+# CONTENT_DRY_RUN=false
+npm start
+
+# Operator terminal:
+npm run story:publish -- story-01.jpg --confirm
+npm run story:status
+```
+
+Details: [docs/story-browser-publishing.md](docs/story-browser-publishing.md).
+
 ### Creating a Story
 
 ```bash
@@ -281,9 +303,14 @@ Dry-run / mock paths never claim a real Instagram publication. Uncertain outcome
 ### Story CLI
 
 ```bash
+npm run media:init
+npm run media:list
+npm run media:inspect -- <filename>
 npm run story:list
 npm run story:show -- <story-id>
 npm run story:approve -- <story-id>
+npm run story:publish -- <filename> --confirm [--dry-run]
+npm run story:status
 npm run story:schedule -- <story-id> --at="2026-11-18T10:00:00+01:00"
 npm run story:schedule -- --group=launch --at="2026-11-18T10:00:00+01:00" --stagger-ms=5000
 npm run story:schedule -- <story-id> --now --confirm --dry-run

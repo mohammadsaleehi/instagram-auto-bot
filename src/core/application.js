@@ -307,12 +307,14 @@ export class Application {
         config: this.config,
         scheduleRepository: scheduleRepo,
         taskRepository: taskRepo,
+        getPage: () => this.browserAdapter.getPage(),
       });
       this.taskManager.registerHandler(this.contentManager.publishHandler);
       this.logger.info('Content management module registered', {
         adapter: this.contentManager.adapter.getCapabilities().name,
         dryRunDefault: this.config.contentDryRun,
         mediaLibraryDir: this.config.mediaLibraryDir,
+        storyMediaDir: this.config.storyMediaDir,
       });
 
       this.intelligenceManager = createIntelligenceManager({

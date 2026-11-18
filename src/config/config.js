@@ -21,7 +21,15 @@ const DEFAULT_APP_TIMEZONE = 'Europe/Berlin';
 const DEFAULT_CONTROL_SOCKET_PATH = './data/bot.sock';
 const DEFAULT_CONTROL_TOKEN_PATH = './data/bot.control-token';
 const DEFAULT_MEDIA_LIBRARY_DIR = './data/media';
-const VALID_PUBLISHING_ADAPTERS = new Set(['mock', 'instagram-graph', 'instagram', 'official']);
+const DEFAULT_STORY_MEDIA_DIR = './media/stories';
+const VALID_PUBLISHING_ADAPTERS = new Set([
+  'mock',
+  'instagram-graph',
+  'instagram',
+  'official',
+  'playwright',
+  'browser',
+]);
 const VALID_GRAPH_LOGIN_FLOWS = new Set(['facebook', 'instagram', 'facebook-login', 'instagram-login']);
 const DEFAULT_GRAPH_API_VERSION = 'v21.0';
 const VALID_AI_PROVIDERS = new Set(['openrouter', 'mock']);
@@ -284,11 +292,14 @@ function parsePublishingAdapter(value, fallback) {
   const candidate = (value === undefined || value === '' ? fallback : value).trim().toLowerCase();
   if (!VALID_PUBLISHING_ADAPTERS.has(candidate)) {
     throw new ConfigError(
-      `Invalid PUBLISHING_ADAPTER: "${value}". Expected one of: mock, instagram-graph.`,
+      `Invalid PUBLISHING_ADAPTER: "${value}". Expected one of: mock, playwright, instagram-graph.`,
     );
   }
   if (candidate === 'instagram' || candidate === 'official') {
     return 'instagram-graph';
+  }
+  if (candidate === 'browser') {
+    return 'playwright';
   }
   return candidate;
 }
@@ -547,6 +558,11 @@ export function loadConfig(env = process.env) {
       PROJECT_ROOT,
       DEFAULT_MEDIA_LIBRARY_DIR,
     ),
+    storyMediaDir: resolveProjectPath(
+      env.STORY_MEDIA_DIR,
+      PROJECT_ROOT,
+      DEFAULT_STORY_MEDIA_DIR,
+    ),
     publishingAdapter: parsePublishingAdapter(env.PUBLISHING_ADAPTER, 'mock'),
     contentDryRun: parseBoolean(env.CONTENT_DRY_RUN, true),
     instagramGraphAccessToken:
@@ -632,6 +648,7 @@ export {
   DEFAULT_CONTROL_SOCKET_PATH,
   DEFAULT_CONTROL_TOKEN_PATH,
   DEFAULT_MEDIA_LIBRARY_DIR,
+  DEFAULT_STORY_MEDIA_DIR,
   DEFAULT_OPENROUTER_BASE_URL,
   VALID_AI_PROVIDERS,
   parseBrowserPlatform,

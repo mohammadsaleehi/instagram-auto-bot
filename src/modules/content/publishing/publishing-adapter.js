@@ -7,6 +7,7 @@ import {
   MEDIA_CONSTRAINTS,
   STORY_MEDIA_CONSTRAINTS,
 } from '../constants.js';
+import { PlaywrightStoryPublishingAdapter } from './playwright-story-adapter.js';
 
 /**
  * @typedef {object} PublishingCapabilities
@@ -804,11 +805,31 @@ function sleep(ms) {
  *   fetchFn?: typeof fetch,
  *   containerPollIntervalMs?: number,
  *   containerPollTimeoutMs?: number,
+ *   getPage?: (() => import('playwright').Page) | null,
+ *   baseUrl?: string,
+ *   navigationTimeoutMs?: number,
+ *   uploadTimeoutMs?: number,
+ *   detectAuthStateFn?: import('../../../auth/auth-state.js').detectAuthState,
  * }} config
  * @returns {PublishingAdapter}
  */
 export function createPublishingAdapter(config = {}) {
   const name = String(config.adapter ?? 'mock').toLowerCase();
+  if (name === 'playwright' || name === 'browser') {
+    if (typeof config.getPage !== 'function') {
+      throw new ContentError(
+        'PUBLISHING_ADAPTER=playwright requires a browser page (run via npm start engine)',
+        { code: 'BROWSER_PAGE_REQUIRED' },
+      );
+    }
+    return new PlaywrightStoryPublishingAdapter({
+      getPage: config.getPage,
+      baseUrl: config.baseUrl,
+      navigationTimeoutMs: config.navigationTimeoutMs,
+      uploadTimeoutMs: config.uploadTimeoutMs,
+      detectAuthStateFn: config.detectAuthStateFn,
+    });
+  }
   if (name === 'instagram-graph' || name === 'instagram' || name === 'official') {
     return new OfficialInstagramPublishingAdapter({
       accessToken: config.accessToken,
@@ -824,3 +845,5 @@ export function createPublishingAdapter(config = {}) {
   }
   return new MockPublishingAdapter();
 }
+
+export { PlaywrightStoryPublishingAdapter, HumanInterventionRequiredError } from './playwright-story-adapter.js';

@@ -1,8 +1,9 @@
 import { AuthState, detectAuthState } from '../auth/auth-state.js';
 
 /**
- * Instagram-facing adapter for future authorized feature modules.
- * Phase 2 exposes auth-state checks only — no Instagram mutations.
+ * Instagram-facing adapter for authorized feature modules.
+ * Auth-state checks live here; Story mutations go through the Playwright
+ * publishing adapter (context.browser), not this class.
  */
 export class InstagramAdapter {
   /**

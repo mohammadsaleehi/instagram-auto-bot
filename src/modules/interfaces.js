@@ -47,8 +47,9 @@ export const FUTURE_MODULE_DOMAINS = Object.freeze([
 
 /**
  * Phase 3.1 content management is implemented under `src/modules/content/`.
- * Publishing uses the Phase 2 task type `content.publish` and must never scrape
- * Instagram or call undocumented private endpoints.
+ * Publishing uses the Phase 2 task type `content.publish`.
+ * Authorized own-account browser UI automation (Playwright Story publishing)
+ * is allowed. Do not scrape other users' data or call undocumented private APIs.
  */
 
 /**

@@ -290,14 +290,23 @@ export class PublishingService {
 /**
  * Task handler registered with Phase 2 TaskManager.
  *
- * @param {{ publishingService: PublishingService }} deps
+ * @param {{
+ *   publishingService: PublishingService,
+ *   storyMediaInbox?: import('../story-media-inbox.js').StoryMediaInbox | null,
+ *   requiresAuth?: boolean,
+ * }} deps
  * @returns {import('../../../tasks/types.js').TaskHandler}
  */
 export function createContentPublishHandler(deps) {
+  const caps = deps.publishingService.getCapabilities();
+  const requiresAuth =
+    deps.requiresAuth ??
+    caps.name === 'playwright';
+
   return {
     type: CONTENT_PUBLISH_TASK_TYPE,
     description: 'Publish approved content via configured publishing adapter',
-    requiresAuth: false,
+    requiresAuth,
     externalSideEffect: true,
     async execute(context, payload, signal) {
       const contentId = String(payload.contentId ?? '');
@@ -311,8 +320,46 @@ export function createContentPublishHandler(deps) {
         immediate: true,
         signal,
       });
+      await archiveSourceMediaIfRequested(deps.storyMediaInbox, payload, result);
       context.markSideEffect?.(false);
-      return result;
+      const lastError = String(result.content?.lastError ?? '');
+      const attemptError = JSON.stringify(result.attempt?.error ?? '');
+      return {
+        ...result,
+        humanInterventionRequired:
+          result.attempt?.status === PublishingAttemptStatus.UNCERTAIN &&
+          `${lastError} ${attemptError}`.toLowerCase().includes('intervention'),
+      };
     },
   };
+}
+
+/**
+ * @param {import('../story-media-inbox.js').StoryMediaInbox | null | undefined} inbox
+ * @param {Record<string, unknown>} payload
+ * @param {{
+ *   attempt?: { status?: string } | null,
+ *   content?: { status?: string } | null,
+ *   duplicate?: boolean,
+ * }} result
+ */
+async function archiveSourceMediaIfRequested(inbox, payload, result) {
+  if (!inbox || !payload.archiveOnComplete || !payload.sourceMediaPath) {
+    return;
+  }
+  if (result.duplicate) {
+    return;
+  }
+  const status = result.attempt?.status ?? result.content?.status;
+  const sourcePath = String(payload.sourceMediaPath);
+  try {
+    if (status === PublishingAttemptStatus.SUCCEEDED) {
+      await inbox.archivePublished(sourcePath);
+    } else if (status === PublishingAttemptStatus.FAILED) {
+      await inbox.archiveFailed(sourcePath);
+    }
+    // UNCERTAIN / DRY_RUN / NEEDS_ATTENTION: leave the original in place.
+  } catch {
+    // Archiving must not flip a successful publish into a task failure.
+  }
 }

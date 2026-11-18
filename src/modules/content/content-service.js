@@ -1,6 +1,7 @@
 import {
   ApprovalAction,
   ApprovalStatus,
+  BROWSER_STORY_MEDIA_CONSTRAINTS,
   ContentError,
   ContentStatus,
   ContentType,
@@ -40,6 +41,7 @@ export class ContentService {
    *   taskRepository?: import('../../storage/repositories/task-repository.js').TaskRepository | null,
    *   timezone?: string,
    *   nowFn?: () => Date,
+   *   storyMediaInbox?: import('./story-media-inbox.js').StoryMediaInbox | null,
    * }} options
    */
   constructor(options) {
@@ -51,6 +53,19 @@ export class ContentService {
     this.timezone = options.timezone ?? 'Europe/Berlin';
     this._now = options.nowFn ?? (() => new Date());
     this.captions = new CaptionManager();
+    this.storyMediaInbox = options.storyMediaInbox ?? null;
+  }
+
+  /**
+   * Story media rules: Graph stays JPEG-only; Playwright UI also accepts PNG.
+   * @returns {typeof STORY_MEDIA_CONSTRAINTS}
+   */
+  storyConstraints() {
+    const adapterName = this.publishingService?.getCapabilities?.()?.name;
+    if (adapterName === 'playwright') {
+      return BROWSER_STORY_MEDIA_CONSTRAINTS;
+    }
+    return STORY_MEDIA_CONSTRAINTS;
   }
 
   /**
@@ -107,7 +122,7 @@ export class ContentService {
               media: refreshed.media,
               story: { storyMediaType },
             },
-            { constraints: STORY_MEDIA_CONSTRAINTS },
+            { constraints: this.storyConstraints() },
           );
           this.repository.upsertStoryDetails(item.id, {
             storyMediaType,
@@ -273,7 +288,7 @@ export class ContentService {
               sequenceOrder: existing.story?.sequenceOrder ?? 0,
             },
           },
-          { constraints: STORY_MEDIA_CONSTRAINTS },
+          { constraints: this.storyConstraints() },
         );
         this.repository.upsertStoryDetails(id, {
           storyMediaType,
@@ -392,7 +407,7 @@ export class ContentService {
       requireCaption: item.contentType !== ContentType.STORY,
     });
     if (item.contentType === ContentType.STORY) {
-      assertStoryReady(item, { constraints: STORY_MEDIA_CONSTRAINTS });
+      assertStoryReady(item, { constraints: this.storyConstraints() });
     }
     assertTransition(item.status, ContentStatus.READY_FOR_REVIEW);
     this.repository.update(id, {
@@ -422,7 +437,7 @@ export class ContentService {
       requireCaption: current.contentType !== ContentType.STORY,
     });
     if (current.contentType === ContentType.STORY) {
-      assertStoryReady(current, { constraints: STORY_MEDIA_CONSTRAINTS });
+      assertStoryReady(current, { constraints: this.storyConstraints() });
     }
     assertTransition(current.status, ContentStatus.APPROVED);
     this.repository.update(id, {
@@ -480,7 +495,7 @@ export class ContentService {
       });
     }
     if (item.contentType === ContentType.STORY) {
-      assertStoryReady(item, { constraints: STORY_MEDIA_CONSTRAINTS });
+      assertStoryReady(item, { constraints: this.storyConstraints() });
     }
 
     const runAt = when instanceof Date ? when : new Date(when);
@@ -607,7 +622,13 @@ export class ContentService {
    * Enqueue immediate publish through the Phase 2 task queue (or run inline).
    *
    * @param {string} id
-   * @param {{ dryRun?: boolean, confirm?: boolean, enqueue?: boolean }} [options]
+   * @param {{
+   *   dryRun?: boolean,
+   *   confirm?: boolean,
+   *   enqueue?: boolean,
+   *   sourceMediaPath?: string,
+   *   archiveOnComplete?: boolean,
+   * }} [options]
    */
   async publishNow(id, options = {}) {
     if (!options.confirm && !(options.dryRun ?? false)) {
@@ -630,6 +651,8 @@ export class ContentService {
         payload: {
           contentId: id,
           dryRun: Boolean(options.dryRun),
+          sourceMediaPath: options.sourceMediaPath ?? null,
+          archiveOnComplete: Boolean(options.archiveOnComplete),
         },
         priority: 80,
         maxAttempts: 1,
@@ -638,13 +661,127 @@ export class ContentService {
       return { enqueued: created, task, content: item, duplicate: !created };
     }
 
+    const published = await this.publishingService.publishContent(id, {
+      dryRun: options.dryRun,
+      confirm: options.confirm,
+      immediate: true,
+    });
+
+    if (
+      options.archiveOnComplete &&
+      options.sourceMediaPath &&
+      this.storyMediaInbox &&
+      !published.duplicate
+    ) {
+      const status = published.attempt?.status;
+      try {
+        if (status === 'SUCCEEDED') {
+          await this.storyMediaInbox.archivePublished(options.sourceMediaPath);
+        } else if (status === 'FAILED') {
+          await this.storyMediaInbox.archiveFailed(options.sourceMediaPath);
+        }
+      } catch {
+        // Preserve publish outcome even if archive relocation fails.
+      }
+    }
+
     return {
       enqueued: false,
-      ...(await this.publishingService.publishContent(id, {
-        dryRun: options.dryRun,
-        confirm: options.confirm,
-        immediate: true,
-      })),
+      ...published,
+    };
+  }
+
+  /**
+   * Explicit owner-driven browser Story publish from a pending media file.
+   * Never auto-selects media. Never invents captions/overlays.
+   *
+   * @param {string} selector Exact filename or path
+   * @param {{
+   *   confirm?: boolean,
+   *   dryRun?: boolean,
+   *   enqueue?: boolean,
+   *   title?: string,
+   *   actor?: string,
+   * }} [options]
+   */
+  async publishStoryFromMedia(selector, options = {}) {
+    if (!this.storyMediaInbox) {
+      throw new ContentError('Story media inbox is not configured', {
+        code: 'STORY_INBOX_MISSING',
+      });
+    }
+
+    const filePath = await this.storyMediaInbox.resolveExact(selector);
+    const inspected = await this.storyMediaInbox.assertPublishable(filePath);
+
+    const title =
+      options.title?.trim() ||
+      `Story ${inspected.fileName}`.slice(0, 120);
+
+    const draft = await this.createStoryDraft({
+      title,
+      type: inspected.storyMediaType ?? 'IMAGE',
+      mediaPaths: [filePath],
+    });
+    const approved = this.approve(draft.id, {
+      actor: options.actor ?? 'operator',
+      note: `Approved for explicit Story publish of ${inspected.fileName}`,
+    });
+
+    const publishResult = await this.publishNow(approved.id, {
+      confirm: options.confirm,
+      dryRun: options.dryRun,
+      enqueue: options.enqueue,
+      sourceMediaPath: filePath,
+      archiveOnComplete: true,
+    });
+
+    return {
+      media: inspected,
+      content: publishResult.content ?? approved,
+      ...publishResult,
+    };
+  }
+
+  /**
+   * Latest Story publication attempt across all Stories (or one Story).
+   *
+   * @param {{ contentId?: string, limit?: number }} [options]
+   */
+  latestStoryPublicationStatus(options = {}) {
+    if (options.contentId) {
+      this.requireStory(options.contentId);
+      const content = this.repository.getById(options.contentId);
+      const history = this.repository.listPublishingHistory(options.contentId, {
+        limit: options.limit ?? 5,
+      });
+      return {
+        content,
+        attempts: history,
+        latest: history[0] ? { content, attempt: history[0] } : null,
+      };
+    }
+
+    const stories = this.repository.listStories({ limit: 50 });
+    /** @type {Array<{ content: object, attempt: object }>} */
+    const ranked = [];
+    for (const story of stories) {
+      const attempts = this.repository.listPublishingHistory(story.id, { limit: 1 });
+      if (attempts[0]) {
+        ranked.push({ content: story, attempt: attempts[0] });
+      }
+    }
+    ranked.sort((a, b) =>
+      String(b.attempt.completedAt ?? b.attempt.createdAt ?? '').localeCompare(
+        String(a.attempt.completedAt ?? a.attempt.createdAt ?? ''),
+      ),
+    );
+    return {
+      content: ranked[0]?.content ?? null,
+      attempts: ranked.slice(0, options.limit ?? 5).map((row) => row.attempt),
+      latest: ranked[0]
+        ? { content: ranked[0].content, attempt: ranked[0].attempt }
+        : null,
     };
   }
 
@@ -742,7 +879,7 @@ export class ContentService {
   previewStory(id) {
     const item = this.requireStory(id);
     const validation = item.media?.length
-      ? assertStoryReady(item, { constraints: STORY_MEDIA_CONSTRAINTS })
+      ? assertStoryReady(item, { constraints: this.storyConstraints() })
       : null;
     const expiresAt = item.story?.storyExpiresAt ?? null;
     const now = this._now().getTime();

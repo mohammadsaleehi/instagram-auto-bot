@@ -12,7 +12,11 @@ import {
   PublishingService,
   createContentPublishHandler,
 } from './publishing/publishing-service.js';
-import { DEFAULT_MEDIA_LIBRARY_DIR } from './constants.js';
+import {
+  DEFAULT_MEDIA_LIBRARY_DIR,
+  DEFAULT_STORY_MEDIA_DIR,
+} from './constants.js';
+import { StoryMediaInbox } from './story-media-inbox.js';
 
 /**
  * Factory that wires the content-management module for Application / CLI.
@@ -24,6 +28,7 @@ import { DEFAULT_MEDIA_LIBRARY_DIR } from './constants.js';
  *   taskRepository?: import('../../storage/repositories/task-repository.js').TaskRepository | null,
  *   nowFn?: () => Date,
  *   fetchFn?: typeof fetch,
+ *   getPage?: (() => import('playwright').Page) | null,
  * }} options
  */
 export function createContentManager(options) {
@@ -33,6 +38,12 @@ export function createContentManager(options) {
     ? String(config.mediaLibraryDir ?? DEFAULT_MEDIA_LIBRARY_DIR)
     : path.resolve(projectRoot, String(config.mediaLibraryDir ?? DEFAULT_MEDIA_LIBRARY_DIR));
 
+  const storyMediaDir = path.isAbsolute(
+    String(config.storyMediaDir ?? DEFAULT_STORY_MEDIA_DIR),
+  )
+    ? String(config.storyMediaDir ?? DEFAULT_STORY_MEDIA_DIR)
+    : path.resolve(projectRoot, String(config.storyMediaDir ?? DEFAULT_STORY_MEDIA_DIR));
+
   const repository = new ContentRepository(options.database, {
     nowFn: options.nowFn,
   });
@@ -41,13 +52,32 @@ export function createContentManager(options) {
     constraints: config.mediaConstraints,
   });
 
+  const storyMediaInbox = new StoryMediaInbox({
+    storyMediaDir,
+    mediaManager,
+    nowFn: options.nowFn,
+  });
+
   const mediaHost = createMediaPublicUrlResolver({
     mediaPublicBaseUrl: config.mediaPublicBaseUrl ?? null,
     mediaLibraryDir: mediaDir,
   });
 
+  const adapterName = String(config.publishingAdapter ?? 'mock');
+  const needsBrowserPage = adapterName === 'playwright' || adapterName === 'browser';
+  const getPage =
+    typeof options.getPage === 'function'
+      ? options.getPage
+      : needsBrowserPage
+        ? () => {
+            throw new Error(
+              'Browser page unavailable. Start the engine with npm start so Playwright Story publishing can use the live session.',
+            );
+          }
+        : undefined;
+
   const adapter = createPublishingAdapter({
-    adapter: String(config.publishingAdapter ?? 'mock'),
+    adapter: adapterName,
     accessToken: config.instagramGraphAccessToken ?? null,
     igUserId: config.instagramBusinessAccountId ?? null,
     loginFlow: config.instagramGraphLoginFlow ?? 'facebook',
@@ -55,6 +85,9 @@ export function createContentManager(options) {
     apiVersion: config.instagramGraphApiVersion ?? undefined,
     mediaPublicUrlResolver: mediaHost,
     fetchFn: options.fetchFn,
+    getPage,
+    baseUrl: config.instagramBaseUrl ?? undefined,
+    navigationTimeoutMs: config.navigationTimeoutMs,
   });
 
   const publishingService = new PublishingService({
@@ -72,19 +105,28 @@ export function createContentManager(options) {
     taskRepository: options.taskRepository ?? null,
     timezone: String(config.appTimezone ?? 'Europe/Berlin'),
     nowFn: options.nowFn,
+    storyMediaInbox,
   });
+
+  const browserPublish = adapter.getCapabilities().name === 'playwright';
 
   return {
     repository,
     mediaManager,
+    storyMediaInbox,
     mediaHost,
     publishingService,
     service,
     adapter,
-    publishHandler: createContentPublishHandler({ publishingService }),
+    publishHandler: createContentPublishHandler({
+      publishingService,
+      storyMediaInbox,
+      requiresAuth: browserPublish,
+    }),
   };
 }
 
 export { ContentService } from './content-service.js';
 export { ContentRepository } from './content-repository.js';
 export { MediaManager } from './media-manager.js';
+export { StoryMediaInbox } from './story-media-inbox.js';

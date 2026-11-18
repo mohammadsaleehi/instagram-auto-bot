@@ -75,6 +75,9 @@ export const CONTENT_PUBLISH_TASK_TYPE = 'content.publish';
 
 export const DEFAULT_MEDIA_LIBRARY_DIR = './data/media';
 
+/** Operator drop-zone for browser Story publishing (pending / published / failed). */
+export const DEFAULT_STORY_MEDIA_DIR = './media/stories';
+
 /** Conservative defaults aligned with Instagram Graph publishing docs. */
 export const MEDIA_CONSTRAINTS = Object.freeze({
   maxImageBytes: 8 * 1024 * 1024,
@@ -109,6 +112,15 @@ export const STORY_MEDIA_CONSTRAINTS = Object.freeze({
   maxVideoWidth: 1920,
   /** When true, reject Story images far from 9:16. Default false (Meta: recommended only). */
   enforceRecommendedAspect: false,
+});
+
+/**
+ * Browser UI Story upload accepts JPEG and PNG in practice.
+ * Phase 1 browser publishing uses these constraints (not Graph JPEG-only).
+ */
+export const BROWSER_STORY_MEDIA_CONSTRAINTS = Object.freeze({
+  ...STORY_MEDIA_CONSTRAINTS,
+  allowedImageMimeTypes: Object.freeze(['image/jpeg', 'image/png']),
 });
 
 /**
