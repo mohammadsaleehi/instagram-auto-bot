@@ -51,6 +51,9 @@ coverage/
 *.diag.json
 *.diag.txt
 
+# Story UI diagnostics (screenshots / DOM summaries; never commit)
+data/diagnostics/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

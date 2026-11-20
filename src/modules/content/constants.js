@@ -69,6 +69,7 @@ export const PublishingAttemptStatus = Object.freeze({
   FAILED: 'FAILED',
   UNCERTAIN: 'UNCERTAIN',
   DRY_RUN: 'DRY_RUN',
+  CANCELLED: 'CANCELLED',
 });
 
 export const CONTENT_PUBLISH_TASK_TYPE = 'content.publish';

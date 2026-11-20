@@ -1,270 +1,271 @@
 import { describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { AuthState } from '../../src/auth/auth-state.js';
+import { ContentType } from '../../src/modules/content/constants.js';
 import {
+  DEFAULT_STORY_TIMEOUTS,
   HumanInterventionRequiredError,
   PlaywrightStoryPublishingAdapter,
+  StoryPublishState,
 } from '../../src/modules/content/publishing/playwright-story-adapter.js';
-import { ContentType } from '../../src/modules/content/constants.js';
+import { STORY_FAILURE_CODES } from '../../src/modules/content/publishing/story/story-states.js';
 
 /**
- * @param {Record<string, unknown>} [overrides]
+ * Minimal page double for preflight/auth-ordering tests. It deliberately makes
+ * `screenshot` and `setViewportSize` throw so any regression is obvious.
  */
-function createFakePage(overrides = {}) {
-  const visible = new Set(overrides.visible ?? []);
-  const fileInputs = overrides.fileInputs ?? [
-    {
-      count: async () => 1,
-      first: () => ({
-        setInputFiles: vi.fn(async () => {}),
-        isVisible: async () => true,
-        click: vi.fn(async () => {}),
-      }),
-      setInputFiles: vi.fn(async () => {}),
-    },
-  ];
-
-  return {
-    url: () => overrides.url ?? 'https://www.instagram.com/',
-    goto: vi.fn(async () => {}),
-    waitForTimeout: vi.fn(async () => {}),
-    locator: vi.fn((selector) => {
-      const match = [...visible].some((item) => selector.includes?.(item) || selector === item);
-      const isFile = String(selector).includes('input[type="file"]');
-      if (isFile && fileInputs[0]) {
-        return {
-          count: async () => 1,
-          first: () => fileInputs[0].first(),
-        };
-      }
-      return {
-        count: async () => (match ? 1 : 0),
-        first: () => ({
-          isVisible: async () => match,
-          click: vi.fn(async () => {
-            if (overrides.onClick) {
-              overrides.onClick(selector);
-            }
-          }),
-          getAttribute: async () => overrides.profileHref ?? null,
-        }),
-        filter: () => ({
-          first: () => ({
-            getAttribute: async () => overrides.profileHref ?? null,
-          }),
-        }),
-      };
+function createFakePage(options = {}) {
+  let currentUrl = options.startUrl ?? 'about:blank';
+  const events = { goto: [], cdp: [] };
+  const cdp = {
+    send: vi.fn(async (method, params = {}) => {
+      events.cdp.push({ method, params });
+      return {};
     }),
-    ...overrides.page,
+  };
+  const page = {
+    context: () => ({ newCDPSession: async () => cdp }),
+    goto: vi.fn(async (target) => {
+      events.goto.push(target);
+      currentUrl = target;
+    }),
+    url: () => currentUrl,
+    evaluate: vi.fn(async () => ({
+      url: currentUrl,
+      screenOrientation: 'portrait-primary',
+      screenAngle: 0,
+      innerWidth: 390,
+      innerHeight: 844,
+      screenWidth: 390,
+      screenHeight: 844,
+      devicePixelRatio: 3,
+      userAgent: 'fixture',
+      platform: 'iPhone',
+      maxTouchPoints: 5,
+    })),
+    waitForTimeout: async () => {},
+    reload: vi.fn(async () => {}),
+    keyboard: { press: vi.fn(async () => {}) },
+    on: vi.fn(),
+    off: vi.fn(),
+    getByRole: () => ({ first: () => ({ isVisible: async () => false, click: async () => {} }) }),
+    getByText: () => ({ first: () => ({ isVisible: async () => false }) }),
+    locator: () => ({ first: () => ({ isVisible: async () => false, click: async () => {} }) }),
+    screenshot: vi.fn(() => {
+      throw new Error('FORBIDDEN page.screenshot');
+    }),
+    setViewportSize: vi.fn(() => {
+      throw new Error('FORBIDDEN page.setViewportSize');
+    }),
+  };
+  return { page, cdp, events };
+}
+
+function authOk() {
+  return { state: AuthState.AUTHENTICATED, url: 'https://www.instagram.com/', signals: [] };
+}
+
+function storyRequest(media, overrides = {}) {
+  return {
+    contentId: 'content-1',
+    contentType: ContentType.STORY,
+    caption: '',
+    hashtags: [],
+    media,
+    idempotencyKey: 'idem-1',
+    dryRun: true,
+    ...overrides,
   };
 }
 
-describe('PlaywrightStoryPublishingAdapter', () => {
-  const media = [
-    {
-      filePath: path.join('/tmp', 'story-01.jpg'),
-      mimeType: 'image/jpeg',
-      mediaKind: 'image',
-      byteSize: 100,
-    },
-  ];
+async function makeTempMedia() {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'story-adapter-unit-'));
+  const filePath = path.join(dir, 'story.png');
+  await fs.writeFile(filePath, Buffer.from('not-a-real-image-but-a-file'));
+  return { dir, filePath };
+}
 
-  it('dry-run validates session and does not share', async () => {
-    const page = createFakePage();
-    const detectAuthStateFn = vi.fn(async () => ({
-      state: AuthState.AUTHENTICATED,
-      url: page.url(),
-      signals: [],
-      reason: 'ok',
-    }));
-    const adapter = new PlaywrightStoryPublishingAdapter({
-      getPage: () => page,
-      detectAuthStateFn,
-      idFn: () => 'test',
-    });
-
-    const result = await adapter.publish({
-      contentId: 'c1',
-      contentType: ContentType.STORY,
-      caption: '',
-      hashtags: [],
-      media,
-      idempotencyKey: 'k1',
-      dryRun: true,
-    });
-
-    expect(result.status).toBe('DRY_RUN');
-    expect(result.simulated).toBe(true);
-    expect(page.goto).not.toHaveBeenCalled();
+describe('PlaywrightStoryPublishingAdapter Phase 0–4 contract', () => {
+  it('exports the legacy surface and canonical Story states', () => {
+    expect(typeof HumanInterventionRequiredError).toBe('function');
+    expect(StoryPublishState.EDITOR_READY).toBe('EDITOR_READY');
+    expect(StoryPublishState.READY_TO_SHARE).toBe('EDITOR_READY');
+    expect(StoryPublishState.UPLOAD_FAILED).toBe('PUBLISH_FAILED');
+    expect(DEFAULT_STORY_TIMEOUTS.navigationMs).toBeGreaterThan(0);
   });
 
-  it('fails closed when not authenticated', async () => {
-    const page = createFakePage();
+  it('declares dryRunOnly and publication disabled', () => {
+    const { page } = createFakePage();
     const adapter = new PlaywrightStoryPublishingAdapter({
       getPage: () => page,
-      detectAuthStateFn: async () => ({
-        state: AuthState.LOGIN_REQUIRED,
-        url: page.url(),
-        signals: ['login_form_visible'],
-        reason: 'login required',
+      diagnosticsDir: null,
+    });
+    const caps = adapter.getCapabilities();
+    expect(caps.isMock).toBe(false);
+    expect(caps.dryRunOnly).toBe(true);
+    expect(caps.publicationEnabled).toBe(false);
+    expect(caps.phase).toBe('entry-editor');
+    expect(caps.surface).toBe('mobile-web-portrait');
+    expect(caps.supportedContentTypes).toEqual([ContentType.STORY]);
+  });
+
+  it('does not touch the browser when content type is not STORY', async () => {
+    const { page, events } = createFakePage();
+    const adapter = new PlaywrightStoryPublishingAdapter({
+      getPage: () => page,
+      diagnosticsDir: null,
+    });
+    const result = await adapter.publish(
+      storyRequest([{ filePath: '/tmp/nope.png', mimeType: 'image/png' }], {
+        contentType: ContentType.POST,
       }),
-    });
-
-    const result = await adapter.publish({
-      contentId: 'c1',
-      contentType: ContentType.STORY,
-      caption: '',
-      hashtags: [],
-      media,
-      idempotencyKey: 'k2',
-      dryRun: false,
-    });
-
+    );
     expect(result.status).toBe('FAILED');
-    expect(result.message).toMatch(/not ready/i);
+    expect(result.raw?.machine?.failureCode).toBe(
+      STORY_FAILURE_CODES.PREFLIGHT_CONTENT_TYPE_INVALID,
+    );
+    expect(result.raw?.machine?.state).toBe(StoryPublishState.PUBLISH_FAILED);
+    expect(events.goto).toEqual([]);
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(page.setViewportSize).not.toHaveBeenCalled();
   });
 
-  it('requires human intervention on checkpoint', async () => {
-    const page = createFakePage();
+  it('requires exactly one local media file', async () => {
+    const { page, events } = createFakePage();
     const adapter = new PlaywrightStoryPublishingAdapter({
       getPage: () => page,
-      detectAuthStateFn: async () => ({
-        state: AuthState.VERIFICATION_REQUIRED,
-        url: 'https://www.instagram.com/challenge/',
-        signals: ['challenge_indicators_visible'],
-        reason: 'challenge',
-      }),
+      diagnosticsDir: null,
     });
-
-    await expect(
-      adapter.publish({
-        contentId: 'c1',
-        contentType: ContentType.STORY,
-        caption: '',
-        hashtags: [],
-        media,
-        idempotencyKey: 'k3',
-        dryRun: false,
-      }),
-    ).rejects.toBeInstanceOf(HumanInterventionRequiredError);
-  });
-
-  it('rejects non-story content types', async () => {
-    const page = createFakePage();
-    const adapter = new PlaywrightStoryPublishingAdapter({
-      getPage: () => page,
-      detectAuthStateFn: async () => ({
-        state: AuthState.AUTHENTICATED,
-        url: page.url(),
-        signals: [],
-        reason: 'ok',
-      }),
-    });
-
-    const result = await adapter.publish({
-      contentId: 'c1',
-      contentType: ContentType.IMAGE,
-      caption: '',
-      hashtags: [],
-      media,
-      idempotencyKey: 'k4',
-      dryRun: false,
-    });
-
+    const result = await adapter.publish(storyRequest([]));
     expect(result.status).toBe('FAILED');
+    expect(result.raw?.machine?.failureCode).toBe(STORY_FAILURE_CODES.PREFLIGHT_MEDIA_INVALID);
+    expect(events.goto).toEqual([]);
+
+    const { dir, filePath } = await makeTempMedia();
+    try {
+      const two = await adapter.publish(
+        storyRequest([
+          { filePath, mimeType: 'image/png' },
+          { filePath, mimeType: 'image/png' },
+        ]),
+      );
+      expect(two.raw?.machine?.failureCode).toBe(
+        STORY_FAILURE_CODES.PREFLIGHT_MEDIA_INVALID,
+      );
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
-  it('returns UNCERTAIN when preview never appears after upload', async () => {
-    const setInputFiles = vi.fn(async () => {});
-    const page = createFakePage({
-      visible: [],
-      fileInputs: [
-        {
-          count: async () => 1,
-          first: () => ({
-            setInputFiles,
-            isVisible: async () => true,
-            click: vi.fn(async () => {}),
-          }),
-        },
-      ],
-    });
-    page.locator = vi.fn((selector) => {
-      if (String(selector).includes('input[type="file"]')) {
-        return {
-          count: async () => 1,
-          first: () => ({
-            setInputFiles,
-            isVisible: async () => true,
-            click: vi.fn(async () => {}),
-          }),
-        };
-      }
-      return {
-        count: async () => 0,
-        first: () => ({
-          isVisible: async () => false,
-          click: vi.fn(async () => {}),
-          getAttribute: async () => null,
-        }),
-        filter: () => ({
-          first: () => ({ getAttribute: async () => null }),
-        }),
-      };
-    });
-
+  it('rejects a missing media file before any browser work', async () => {
+    const { page, events } = createFakePage();
     const adapter = new PlaywrightStoryPublishingAdapter({
       getPage: () => page,
-      detectAuthStateFn: async () => ({
-        state: AuthState.AUTHENTICATED,
-        url: page.url(),
-        signals: [],
-        reason: 'ok',
-      }),
-      uploadTimeoutMs: 50,
-      navigationTimeoutMs: 50,
-      idFn: () => 'uncertain',
+      diagnosticsDir: null,
     });
-
-    const result = await adapter.publish({
-      contentId: 'c1',
-      contentType: ContentType.STORY,
-      caption: '',
-      hashtags: [],
-      media,
-      idempotencyKey: 'k5',
-      dryRun: false,
-    });
-
-    expect(result.status).toBe('UNCERTAIN');
-    expect(result.message).toMatch(/manual review/i);
-    expect(setInputFiles).toHaveBeenCalled();
+    const result = await adapter.publish(
+      storyRequest([{ filePath: '/tmp/story-file-that-does-not-exist.png', mimeType: 'image/png' }]),
+    );
+    expect(result.status).toBe('FAILED');
+    expect(result.raw?.machine?.failureCode).toBe(STORY_FAILURE_CODES.PREFLIGHT_MEDIA_INVALID);
+    expect(result.raw?.machine?.retryable).toBe(true);
+    expect(events.goto).toEqual([]);
   });
 
-  it('deduplicates by idempotency key after success', async () => {
+  it('refuses a real publication without a one-time authorization', async () => {
+    const { page, events } = createFakePage();
+    const { dir, filePath } = await makeTempMedia();
+    try {
+      const adapter = new PlaywrightStoryPublishingAdapter({
+        getPage: () => page,
+        diagnosticsDir: null,
+        enablePublication: true,
+        expectedAccountHandle: 'mohammad7656336',
+        operationStore: {},
+      });
+      const result = await adapter.publish(
+        storyRequest([{ filePath, mimeType: 'image/png' }], { dryRun: false }),
+      );
+      expect(result.status).toBe('FAILED');
+      expect(result.raw?.machine?.failureCode).toBe(
+        STORY_FAILURE_CODES.PUBLICATION_NOT_AUTHORIZED,
+      );
+      expect(events.goto).toEqual([]);
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(page.setViewportSize).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a real publication without a durable operation store', async () => {
+    const { page, events } = createFakePage();
+    const { dir, filePath } = await makeTempMedia();
+    try {
+      const adapter = new PlaywrightStoryPublishingAdapter({
+        getPage: () => page,
+        diagnosticsDir: null,
+        enablePublication: true,
+        expectedAccountHandle: 'mohammad7656336',
+        operationStore: null,
+      });
+      const result = await adapter.publish(
+        storyRequest([{ filePath, mimeType: 'image/png' }], { dryRun: false }),
+      );
+      expect(result.status).toBe('FAILED');
+      expect(result.raw?.machine?.failureCode).toBe(
+        STORY_FAILURE_CODES.PUBLICATION_NOT_AUTHORIZED,
+      );
+      expect(events.goto).toEqual([]);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('forbids direct Story URL bases', async () => {
+    const { page, events } = createFakePage();
+    const { dir, filePath } = await makeTempMedia();
+    try {
+      const adapter = new PlaywrightStoryPublishingAdapter({
+        getPage: () => page,
+        baseUrl: 'https://www.instagram.com/create/story',
+        diagnosticsDir: null,
+      });
+      const result = await adapter.publish(
+        storyRequest([{ filePath, mimeType: 'image/png' }]),
+      );
+      expect(result.status).toBe('FAILED');
+      expect(result.raw?.machine?.failureCode).toBe('STORY_UI_DIRECT_URL_FORBIDDEN');
+      expect(events.goto).toEqual([]);
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(page.setViewportSize).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('evaluates auth only after navigating to Instagram', async () => {
+    const { page, events } = createFakePage({ startUrl: 'about:blank' });
+    let observedUrl = null;
     const adapter = new PlaywrightStoryPublishingAdapter({
-      getPage: () => createFakePage(),
-      detectAuthStateFn: async () => ({
-        state: AuthState.AUTHENTICATED,
-        url: 'https://www.instagram.com/',
-        signals: [],
-        reason: 'ok',
+      getPage: () => page,
+      baseUrl: 'https://www.instagram.com',
+      diagnosticsDir: null,
+      detectAuthStateFn: vi.fn(async (p) => {
+        observedUrl = p.url();
+        return authOk();
       }),
-      idFn: () => 'dup',
     });
-    adapter.publishedKeys.add('same-key');
-
-    const result = await adapter.publish({
-      contentId: 'c1',
-      contentType: ContentType.STORY,
-      caption: '',
-      hashtags: [],
-      media,
-      idempotencyKey: 'same-key',
-      dryRun: false,
-    });
-
-    expect(result.status).toBe('SUCCEEDED');
-    expect(result.raw?.duplicate).toBe(true);
+    const result = await adapter.validateAccount();
+    expect(result.ok).toBe(true);
+    expect(events.goto[0]).toBe('https://www.instagram.com/');
+    expect(observedUrl).toBe('https://www.instagram.com/');
+    expect(page.screenshot).not.toHaveBeenCalled();
+    expect(page.setViewportSize).not.toHaveBeenCalled();
+    expect(
+      events.cdp.some((send) => send.method === 'Emulation.setDeviceMetricsOverride'),
+    ).toBe(true);
   });
 });

@@ -263,14 +263,145 @@ export class TaskWorker {
       );
 
       const durationMs = Date.now() - startedAt;
+      const publicationOutcome =
+        result?.publication?.outcome ?? result?.publicationOutcome ?? null;
+
+      if (
+        publicationOutcome === 'PUBLICATION_UNCERTAIN' ||
+        (publicationOutcome == null && result?.humanInterventionRequired === true)
+      ) {
+        const updated = this.tasks.update(
+          task.id,
+          {
+            status: TaskStatus.NEEDS_ATTENTION,
+            resultMetadata: sanitizeResult(result),
+            lastError: {
+              message:
+                result?.message ??
+                'Publication outcome is uncertain; manual review required',
+              errorClass: ErrorClass.UNKNOWN,
+              code: 'PUBLICATION_UNCERTAIN',
+            },
+            completedAt: new Date().toISOString(),
+            clearClaim: true,
+            sideEffectStarted,
+          },
+          { status: TaskStatus.RUNNING, claimedBy: this.workerId },
+        );
+        if (!updated) {
+          this.logger.warn('Stale worker completion ignored', {
+            taskId: task.id,
+            type: task.type,
+          });
+          return;
+        }
+        this.events.append({
+          taskId: task.id,
+          eventType: TaskEventType.NEEDS_ATTENTION,
+          previousState: TaskStatus.RUNNING,
+          newState: TaskStatus.NEEDS_ATTENTION,
+          durationMs,
+          result: sanitizeResult(result),
+          meta: { publicationOutcome: 'PUBLICATION_UNCERTAIN' },
+        });
+        this.logger.error('Task needs publication attention', {
+          taskId: task.id,
+          type: task.type,
+          durationMs,
+        });
+        return;
+      }
+
+      if (publicationOutcome === 'CANCELLED') {
+        const updated = this.tasks.update(
+          task.id,
+          {
+            status: TaskStatus.CANCELLED,
+            resultMetadata: sanitizeResult(result),
+            completedAt: new Date().toISOString(),
+            clearClaim: true,
+            sideEffectStarted,
+          },
+          { status: TaskStatus.RUNNING, claimedBy: this.workerId },
+        );
+        if (!updated) {
+          this.logger.warn('Stale worker cancellation ignored', {
+            taskId: task.id,
+            type: task.type,
+          });
+          return;
+        }
+        this.events.append({
+          taskId: task.id,
+          eventType: TaskEventType.CANCELLED,
+          previousState: TaskStatus.RUNNING,
+          newState: TaskStatus.CANCELLED,
+          durationMs,
+          meta: { publicationOutcome: 'CANCELLED' },
+        });
+        return;
+      }
+
+      if (publicationOutcome === 'PUBLISH_FAILED') {
+        const updated = this.tasks.update(
+          task.id,
+          {
+            status: TaskStatus.FAILED,
+            resultMetadata: sanitizeResult(result),
+            lastError: {
+              message: result?.message ?? 'Publication failed before Share',
+              errorClass: ErrorClass.UNKNOWN,
+              code: 'PUBLISH_FAILED',
+            },
+            completedAt: new Date().toISOString(),
+            clearClaim: true,
+            sideEffectStarted,
+          },
+          { status: TaskStatus.RUNNING, claimedBy: this.workerId },
+        );
+        if (!updated) {
+          this.logger.warn('Stale worker failure ignored', {
+            taskId: task.id,
+            type: task.type,
+          });
+          return;
+        }
+        this.events.append({
+          taskId: task.id,
+          eventType: TaskEventType.FAILED,
+          previousState: TaskStatus.RUNNING,
+          newState: TaskStatus.FAILED,
+          durationMs,
+          result: sanitizeResult(result),
+          meta: { publicationOutcome: 'PUBLISH_FAILED' },
+        });
+        this.logger.error('Publication failed; no automatic task retry', {
+          taskId: task.id,
+          type: task.type,
+          durationMs,
+        });
+        return;
+      }
+
       assertTransition(TaskStatus.RUNNING, TaskStatus.COMPLETED);
-      this.tasks.update(task.id, {
-        status: TaskStatus.COMPLETED,
-        resultMetadata: sanitizeResult(result),
-        completedAt: new Date().toISOString(),
-        clearClaim: true,
-        sideEffectStarted,
-      });
+      const updated = this.tasks.update(
+        task.id,
+        {
+          status: TaskStatus.COMPLETED,
+          resultMetadata: sanitizeResult(result),
+          completedAt: new Date().toISOString(),
+          clearClaim: true,
+          sideEffectStarted,
+        },
+        { status: TaskStatus.RUNNING, claimedBy: this.workerId },
+      );
+      if (!updated) {
+        this.logger.warn('Stale worker completion ignored', {
+          taskId: task.id,
+          type: task.type,
+        });
+        return;
+      }
       this.events.append({
         taskId: task.id,
         eventType: TaskEventType.COMPLETED,
@@ -278,11 +409,13 @@ export class TaskWorker {
         newState: TaskStatus.COMPLETED,
         durationMs,
         result: sanitizeResult(result),
+        meta: publicationOutcome ? { publicationOutcome } : undefined,
       });
       this.logger.info('Task completed', {
         taskId: task.id,
         type: task.type,
         durationMs,
+        publicationOutcome,
       });
       this.eventsBus?.emit('task.completed', { taskId: task.id, type: task.type });
     } catch (error) {
@@ -314,12 +447,23 @@ export class TaskWorker {
 
     if (decision.action === 'retry') {
       assertTransition(TaskStatus.RUNNING, TaskStatus.PENDING);
-      this.tasks.update(task.id, {
-        status: TaskStatus.PENDING,
-        lastError: decision.error,
-        nextAttemptAt: decision.nextAttemptAt,
-        clearClaim: true,
-      });
+      const updated = this.tasks.update(
+        task.id,
+        {
+          status: TaskStatus.PENDING,
+          lastError: decision.error,
+          nextAttemptAt: decision.nextAttemptAt,
+          clearClaim: true,
+        },
+        { status: TaskStatus.RUNNING, claimedBy: this.workerId },
+      );
+      if (!updated) {
+        this.logger.warn('Stale worker retry ignored', {
+          taskId: task.id,
+          type: task.type,
+        });
+        return;
+      }
       this.events.append({
         taskId: task.id,
         eventType: TaskEventType.RETRY_SCHEDULED,
@@ -344,12 +488,23 @@ export class TaskWorker {
           ? TaskStatus.CANCELLED
           : TaskStatus.NEEDS_ATTENTION;
       assertTransition(TaskStatus.RUNNING, nextStatus);
-      this.tasks.update(task.id, {
-        status: nextStatus,
-        lastError: decision.error,
-        completedAt: new Date().toISOString(),
-        clearClaim: true,
-      });
+      const updated = this.tasks.update(
+        task.id,
+        {
+          status: nextStatus,
+          lastError: decision.error,
+          completedAt: new Date().toISOString(),
+          clearClaim: true,
+        },
+        { status: TaskStatus.RUNNING, claimedBy: this.workerId },
+      );
+      if (!updated) {
+        this.logger.warn('Stale worker failure update ignored', {
+          taskId: task.id,
+          type: task.type,
+        });
+        return;
+      }
       this.events.append({
         taskId: task.id,
         eventType:

@@ -116,6 +116,9 @@ export function mapPublishingHistoryRow(row) {
     attemptNumber: Number(row.attempt_number),
     adapter: String(row.adapter),
     status: String(row.status),
+    publicationOutcome: row.publication_outcome
+      ? String(row.publication_outcome)
+      : null,
     idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
     requestId: row.request_id ? String(row.request_id) : null,
     containerId: row.container_id ? String(row.container_id) : null,

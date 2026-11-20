@@ -132,6 +132,108 @@ describe('TaskWorker / TaskManager', () => {
     await run;
   });
 
+  it('maps publication outcomes without treating task completion as publication', async () => {
+    const { manager, tasks } = createManager({ registerDemoHandler: false });
+
+    manager.registry.register({
+      type: 'test.publication.uncertain',
+      requiresAuth: false,
+      externalSideEffect: true,
+      execute: async () => ({
+        publicationOutcome: 'PUBLICATION_UNCERTAIN',
+        message: 'share result unknown',
+      }),
+    });
+    manager.registry.register({
+      type: 'test.publication.failed',
+      requiresAuth: false,
+      externalSideEffect: true,
+      execute: async () => ({
+        publicationOutcome: 'PUBLISH_FAILED',
+        message: 'failed before share',
+      }),
+    });
+    manager.registry.register({
+      type: 'test.publication.confirmed',
+      requiresAuth: false,
+      externalSideEffect: true,
+      execute: async () => ({
+        publicationOutcome: 'PUBLICATION_CONFIRMED',
+      }),
+    });
+
+    const uncertain = manager.enqueue({
+      type: 'test.publication.uncertain',
+      maxAttempts: 3,
+    });
+    const failed = manager.enqueue({
+      type: 'test.publication.failed',
+      maxAttempts: 3,
+    });
+    const confirmed = manager.enqueue({
+      type: 'test.publication.confirmed',
+      maxAttempts: 3,
+    });
+    const run = manager.start();
+    await vi.waitFor(() => {
+      expect(tasks.getById(confirmed.task.id)?.status).toBe(
+        TaskStatus.COMPLETED,
+      );
+    }, { timeout: 3000 });
+    await manager.stop();
+    await run;
+    expect(tasks.getById(uncertain.task.id)?.status).toBe(
+      TaskStatus.NEEDS_ATTENTION,
+    );
+    expect(tasks.getById(uncertain.task.id)?.attemptCount).toBe(1);
+    expect(tasks.getById(uncertain.task.id)?.resultMetadata).toMatchObject({
+      publicationOutcome: 'PUBLICATION_UNCERTAIN',
+    });
+    expect(tasks.getById(failed.task.id)?.status).toBe(TaskStatus.FAILED);
+    expect(tasks.getById(failed.task.id)?.attemptCount).toBe(1);
+  });
+
+  it('does not let a stale worker overwrite a newer task result', async () => {
+    const { manager, tasks } = createManager({ registerDemoHandler: false });
+    let taskId = null;
+    manager.registry.register({
+      type: 'test.publication.stale',
+      requiresAuth: false,
+      externalSideEffect: true,
+      execute: async () => {
+        tasks.db.raw
+          .prepare(
+            `UPDATE tasks SET status = ?, claimed_by = 'other-worker',
+             result_metadata = ?, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(
+            TaskStatus.COMPLETED,
+            JSON.stringify({ by: 'other-worker' }),
+            new Date().toISOString(),
+            taskId,
+          );
+        return { publicationOutcome: 'PUBLISH_FAILED' };
+      },
+    });
+    const { task } = manager.enqueue({
+      type: 'test.publication.stale',
+      maxAttempts: 3,
+    });
+    taskId = task.id;
+    const run = manager.start();
+    await vi.waitFor(() => {
+      expect(tasks.getById(task.id)?.resultMetadata).toMatchObject({
+        by: 'other-worker',
+      });
+    }, { timeout: 2000 });
+    await manager.stop();
+    await run;
+    const current = tasks.getById(task.id);
+    expect(current?.status).toBe(TaskStatus.COMPLETED);
+    expect(current?.resultMetadata).toMatchObject({ by: 'other-worker' });
+  });
+
   it('moves uncertain side effects to NEEDS_ATTENTION on stale recovery', () => {
     const { tasks, events } = createManager();
     const { task } = tasks.create({

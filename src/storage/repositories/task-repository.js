@@ -229,8 +229,9 @@ export class TaskRepository {
    *   sideEffectStarted?: boolean,
    *   clearClaim?: boolean,
    * }} patch
+   * @param {{ status?: string, claimedBy?: string }} [expected]
    */
-  update(id, patch) {
+  update(id, patch, expected = {}) {
     const current = this.getById(id);
     if (!current) {
       return null;
@@ -255,7 +256,18 @@ export class TaskRepository {
         ? current.sideEffectStarted
         : patch.sideEffectStarted;
 
-    this.db.raw
+    const where = ['id = ?'];
+    const params = [id];
+    if (expected.status) {
+      where.push('status = ?');
+      params.push(expected.status);
+    }
+    if (expected.claimedBy) {
+      where.push('claimed_by = ?');
+      params.push(expected.claimedBy);
+    }
+
+    const result = this.db.raw
       .prepare(
         `UPDATE tasks SET
           status = ?,
@@ -267,7 +279,7 @@ export class TaskRepository {
           claimed_by = CASE WHEN ? THEN NULL ELSE claimed_by END,
           claimed_at = CASE WHEN ? THEN NULL ELSE claimed_at END,
           updated_at = ?
-        WHERE id = ?`,
+        WHERE ${where.join(' AND ')}`,
       )
       .run(
         status,
@@ -279,10 +291,10 @@ export class TaskRepository {
         patch.clearClaim ? 1 : 0,
         patch.clearClaim ? 1 : 0,
         now,
-        id,
+        ...params,
       );
 
-    return this.getById(id);
+    return Number(result.changes) === 1 ? this.getById(id) : null;
   }
 
   /**

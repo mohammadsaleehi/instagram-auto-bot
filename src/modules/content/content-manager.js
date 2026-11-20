@@ -88,6 +88,9 @@ export function createContentManager(options) {
     getPage,
     baseUrl: config.instagramBaseUrl ?? undefined,
     navigationTimeoutMs: config.navigationTimeoutMs,
+    diagnosticsDir: path.resolve(projectRoot, 'data/diagnostics/story-ui'),
+    // Phase 0–4 gate: Story entry/upload/editor only. Share is never clicked.
+    enablePublication: false,
   });
 
   const publishingService = new PublishingService({

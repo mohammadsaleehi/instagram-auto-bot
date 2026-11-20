@@ -8,6 +8,8 @@ import {
   STORY_MEDIA_CONSTRAINTS,
 } from '../constants.js';
 import { PlaywrightStoryPublishingAdapter } from './playwright-story-adapter.js';
+import { PublicationOutcome } from './publication-outcomes.js';
+import { AdapterExecutionStatus } from './publication-adapter-contract.js';
 
 /**
  * @typedef {object} PublishingCapabilities
@@ -117,71 +119,116 @@ export class MockPublishingAdapter extends PublishingAdapter {
   }
 
   /**
+   * Attach the common adapter contract while keeping legacy fields.
+   *
+   * @param {PublishRequest} request
+   * @param {Record<string, any>} fields
+   */
+  _result(request, fields) {
+    const requestId = fields.requestId ?? this._id();
+    const outcome =
+      fields.status === 'SUCCEEDED'
+        ? PublicationOutcome.PUBLICATION_CONFIRMED
+        : fields.status === 'UNCERTAIN'
+          ? PublicationOutcome.PUBLICATION_UNCERTAIN
+          : fields.status === 'FAILED'
+            ? PublicationOutcome.PUBLISH_FAILED
+            : PublicationOutcome.READY;
+    return {
+      ...fields,
+      requestId,
+      operationId: requestId,
+      accountId: null,
+      contentId: request.contentId,
+      execution: {
+        status:
+          fields.status === 'FAILED'
+            ? AdapterExecutionStatus.FAILED
+            : AdapterExecutionStatus.COMPLETED,
+        state: null,
+        shareIntentAt: null,
+        shareInvokedAt: null,
+      },
+      publication: {
+        outcome,
+        verified: false,
+        simulated: true,
+        failureCode: fields.status === 'FAILED' ? 'SIMULATED_FAILURE' : null,
+        evidence: fields.raw ?? {},
+      },
+      failureCode: fields.status === 'FAILED' ? 'SIMULATED_FAILURE' : null,
+      retryable: fields.status === 'FAILED',
+      evidence: fields.raw ?? {},
+      timestamps: {
+        shareIntentAt: null,
+        shareInvokedAt: null,
+        completedAt: new Date().toISOString(),
+      },
+      diagnostics: { dir: null },
+    };
+  }
+
+  /**
    * @param {PublishRequest} request
    * @returns {Promise<PublishResult>}
    */
   async publish(request) {
     if (this.publishedKeys.has(request.idempotencyKey)) {
-      return {
+      return this._result(request, {
         status: 'SUCCEEDED',
         simulated: true,
         externalPublishId: `mock_dup_${request.idempotencyKey}`,
         containerId: null,
-        requestId: this._id(),
         message: 'Duplicate idempotency key — returning prior simulated success',
         raw: { duplicate: true },
-      };
+      });
     }
 
     if (request.dryRun) {
-      return {
+      return this._result(request, {
         status: 'DRY_RUN',
         simulated: true,
         externalPublishId: null,
         containerId: `dry_container_${request.contentId}`,
-        requestId: this._id(),
         message: 'Dry-run only — no Instagram publication occurred',
         raw: { dryRun: true },
-      };
+      });
     }
 
     if (this.uncertainNext) {
       this.uncertainNext = false;
-      return {
+      return this._result(request, {
         status: 'UNCERTAIN',
         simulated: true,
         externalPublishId: null,
         containerId: `mock_container_${request.contentId}`,
-        requestId: this._id(),
         message: 'Publication result unknown (simulated timeout)',
         raw: { uncertain: true },
-      };
+      });
     }
 
     if (this.failNext) {
       this.failNext = false;
-      return {
+      return this._result(request, {
         status: 'FAILED',
         simulated: true,
         externalPublishId: null,
         containerId: null,
-        requestId: this._id(),
         message: 'Simulated publishing failure',
         raw: { failed: true },
-      };
+      });
     }
 
     const externalId = `mock_pub_${this._id()}`;
     this.publishedKeys.add(request.idempotencyKey);
-    return {
+    return this._result(request, {
       status: 'SUCCEEDED',
       simulated: true,
       externalPublishId: externalId,
       containerId: `mock_container_${request.contentId}`,
-      requestId: this._id(),
       message: 'Simulated publication succeeded (not a real Instagram post)',
       raw: { simulated: true },
-    };
+    });
   }
 }
 
@@ -828,6 +875,11 @@ export function createPublishingAdapter(config = {}) {
       navigationTimeoutMs: config.navigationTimeoutMs,
       uploadTimeoutMs: config.uploadTimeoutMs,
       detectAuthStateFn: config.detectAuthStateFn,
+      diagnosticsDir: config.diagnosticsDir,
+      diagnosticsRetention: config.diagnosticsRetention,
+      identityMaxDistance: config.identityMaxDistance,
+      // Phase 0–4 gate: publication is not implemented yet.
+      enablePublication: false,
     });
   }
   if (name === 'instagram-graph' || name === 'instagram' || name === 'official') {

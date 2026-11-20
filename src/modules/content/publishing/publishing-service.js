@@ -5,11 +5,14 @@ import {
   ContentType,
   PublishingAttemptStatus,
   CONTENT_PUBLISH_TASK_TYPE,
-  STORY_TTL_MS,
 } from '../constants.js';
 import { assertTransition } from '../content-state-machine.js';
 import { assertCanPublish } from './publishing-validator.js';
 import { PublishingHistoryService } from './publishing-history.js';
+import {
+  PublicationLifecycleService,
+  PublicationOutcome,
+} from './publication-lifecycle.js';
 
 /**
  * Orchestrates publishing through a PublishingAdapter and persists history.
@@ -20,6 +23,7 @@ export class PublishingService {
    * @param {{
    *   repository: import('../content-repository.js').ContentRepository,
    *   adapter: import('./publishing-adapter.js').PublishingAdapter,
+   *   lifecycle?: PublicationLifecycleService,
    *   dryRunDefault?: boolean,
    *   nowFn?: () => Date,
    * }} options
@@ -30,6 +34,13 @@ export class PublishingService {
     this.dryRunDefault = Boolean(options.dryRunDefault);
     this._now = options.nowFn ?? (() => new Date());
     this.history = new PublishingHistoryService(options.repository);
+    this.lifecycle =
+      options.lifecycle ??
+      new PublicationLifecycleService({
+        database: options.repository.db,
+        repository: options.repository,
+        nowFn: this._now,
+      });
   }
 
   getCapabilities() {
@@ -58,7 +69,12 @@ export class PublishingService {
     }
 
     const caps = this.adapter.getCapabilities();
-    const dryRun = options.dryRun ?? this.dryRunDefault ?? caps.dryRunOnly;
+    // A dry-run-only adapter can never be promoted to a real attempt by a
+    // caller passing `dryRun: false`. The capability is a hard safety gate.
+    const dryRun =
+      options.dryRun === true ||
+      this.dryRunDefault === true ||
+      caps.dryRunOnly === true;
 
     assertCanPublish(content, {
       supportedTypes: caps.supportedContentTypes,
@@ -127,14 +143,27 @@ export class PublishingService {
         signal: options.signal,
       });
     } catch (error) {
+      const classified = this.lifecycle.classifyThrownError({ contentId, error });
+      const canonical = classified.outcome;
       result = {
-        status: 'UNCERTAIN',
+        status:
+          canonical === PublicationOutcome.PUBLISH_FAILED ? 'FAILED' : 'UNCERTAIN',
         simulated: caps.isMock,
         externalPublishId: null,
         containerId: null,
-        requestId: null,
+        requestId: classified.operation?.id ?? null,
         message: error instanceof Error ? error.message : String(error),
-        raw: { thrown: true },
+        raw: {
+          thrown: true,
+          publicationOutcome: canonical,
+          failure: classified.failure,
+          shareMayHaveOccurred: classified.shareMayHaveOccurred,
+        },
+        publication: {
+          outcome: canonical,
+          verified: false,
+          failure: classified.failure,
+        },
       };
     }
 
@@ -148,116 +177,22 @@ export class PublishingService {
    * @param {import('./publishing-adapter.js').PublishingCapabilities} caps
    */
   _finalizeAttempt(contentId, historyId, result, caps) {
-    const now = this._now().toISOString();
     const simulated = Boolean(result.simulated) || caps.isMock;
-    const dryRun = result.status === 'DRY_RUN';
-
-    // Update history row by inserting completion record details via update SQL
-    this.repository.db.raw
-      .prepare(
-        `UPDATE publishing_history SET
-          status = ?,
-          request_id = ?,
-          container_id = ?,
-          external_publish_id = ?,
-          dry_run = ?,
-          error_json = ?,
-          result_json = ?,
-          completed_at = ?
-         WHERE id = ?`,
-      )
-      .run(
-        result.status,
-        result.requestId,
-        result.containerId,
-        result.externalPublishId,
-        dryRun ? 1 : 0,
-        result.status === 'FAILED' || result.status === 'UNCERTAIN'
-          ? JSON.stringify({ message: result.message, raw: result.raw })
-          : null,
-        JSON.stringify({
-          ...(result.raw ?? {}),
-          simulated,
-          message: result.message,
-          // Never claim mock/dry-run as a real Instagram publication
-          realInstagramPublication: !simulated && !dryRun && result.status === 'SUCCEEDED',
-        }),
-        now,
-        historyId,
-      );
-
-    if (result.status === 'SUCCEEDED' && !dryRun) {
-      const content = this.repository.getById(contentId);
-      this.repository.update(contentId, {
-        status: ContentStatus.PUBLISHED,
-        publishedAt: now,
-        externalPublishId: result.externalPublishId,
-        lastError: null,
-      });
-      if (content?.contentType === ContentType.STORY) {
-        const expiresAt = new Date(Date.parse(now) + STORY_TTL_MS).toISOString();
-        const existingStory = this.repository.getStoryDetails(contentId);
-        this.repository.upsertStoryDetails(contentId, {
-          storyMediaType:
-            existingStory?.storyMediaType ??
-            (content.media?.[0]?.mediaKind === 'video' ? 'VIDEO' : 'IMAGE'),
-          storyGroupId: existingStory?.storyGroupId ?? null,
-          sequenceOrder: existingStory?.sequenceOrder ?? 0,
-          storyContainerId: result.containerId ?? existingStory?.storyContainerId ?? null,
-          storyPublishedAt: now,
-          storyExpiresAt: expiresAt,
-        });
-      }
-    } else if (result.status === 'DRY_RUN') {
-      // Dry-run does not advance to PUBLISHED — restore to APPROVED
-      this.repository.update(contentId, {
-        status: ContentStatus.APPROVED,
-        lastError: null,
-      });
-      const content = this.repository.getById(contentId);
-      if (content?.contentType === ContentType.STORY && result.containerId) {
-        const existingStory = this.repository.getStoryDetails(contentId);
-        if (existingStory) {
-          this.repository.upsertStoryDetails(contentId, {
-            storyMediaType: existingStory.storyMediaType,
-            storyGroupId: existingStory.storyGroupId,
-            sequenceOrder: existingStory.sequenceOrder,
-            storyContainerId: result.containerId,
-          });
-        }
-      }
-    } else if (result.status === 'UNCERTAIN') {
-      this.repository.update(contentId, {
-        status: ContentStatus.NEEDS_ATTENTION,
-        lastError:
-          result.message ??
-          'Publication result uncertain — manual review required before retry',
-      });
-      const content = this.repository.getById(contentId);
-      if (content?.contentType === ContentType.STORY && result.containerId) {
-        const existingStory = this.repository.getStoryDetails(contentId);
-        if (existingStory) {
-          this.repository.upsertStoryDetails(contentId, {
-            storyMediaType: existingStory.storyMediaType,
-            storyGroupId: existingStory.storyGroupId,
-            sequenceOrder: existingStory.sequenceOrder,
-            storyContainerId: result.containerId,
-          });
-        }
-      }
-    } else {
-      this.repository.update(contentId, {
-        status: ContentStatus.FAILED,
-        lastError: result.message ?? 'Publishing failed',
-      });
-    }
-
+    const applied = this.lifecycle.applyAdapterResult({
+      contentId,
+      historyId,
+      operationId: result.requestId ?? null,
+      result,
+      caps,
+      dryRun: result.status === 'DRY_RUN',
+    });
     const attempt = this.repository.getPublishingHistoryById(historyId);
     return {
       content: this.repository.getById(contentId),
       attempt,
       duplicate: false,
       simulated,
+      publicationOutcome: applied.outcome,
     };
   }
 

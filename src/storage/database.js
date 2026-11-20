@@ -5,6 +5,9 @@ import { up as migration001, version as version001, name as name001 } from './mi
 import { up as migration002, version as version002, name as name002 } from './migrations/002-content.js';
 import { up as migration003, version as version003, name as name003 } from './migrations/003-story.js';
 import { up as migration004, version as version004, name as name004 } from './migrations/004-intelligence.js';
+import { up as migration005, version as version005, name as name005 } from './migrations/005-story-operations.js';
+import { up as migration006, version as version006, name as name006 } from './migrations/006-story-operation-events.js';
+import { up as migration007, version as version007, name as name007 } from './migrations/007-publication-lifecycle.js';
 
 export const DEFAULT_DATABASE_PATH = './data/bot.sqlite';
 
@@ -26,6 +29,9 @@ const MIGRATIONS = Object.freeze([
   { version: version002, name: name002, up: migration002 },
   { version: version003, name: name003, up: migration003 },
   { version: version004, name: name004, up: migration004 },
+  { version: version005, name: name005, up: migration005 },
+  { version: version006, name: name006, up: migration006 },
+  { version: version007, name: name007, up: migration007 },
 ]);
 
 /**

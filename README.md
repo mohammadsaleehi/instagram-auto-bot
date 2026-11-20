@@ -261,7 +261,7 @@ npm run story:publish -- story-01.jpg --confirm
 npm run story:status
 ```
 
-Details: [docs/story-browser-publishing.md](docs/story-browser-publishing.md).
+Stories use the verified **mobile-web portrait** Playwright path (**390×844**, header `+` → Story). The desktop Story route is removed. Phases 0–4 stop at the verified editor and never click **Add to your story**. Details: [docs/story-browser-publishing.md](docs/story-browser-publishing.md).
 
 ### Creating a Story
 

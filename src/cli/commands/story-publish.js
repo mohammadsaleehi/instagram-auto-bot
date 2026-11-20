@@ -25,13 +25,15 @@ async function main() {
         '  npm run story:publish -- <filename> --confirm [--dry-run] [--json]',
         '  npm run story:publish -- ./media/stories/pending/story-01.jpg --confirm',
         '',
-        'Publishes exactly one Story image via the configured publishing adapter.',
+        'Runs exactly one Story image through the configured publishing adapter.',
         'Requires an explicit filename/path (never auto-picks media).',
-        'Real browser publishes need:',
+        'Browser adapter (Phases 0–4) stops at the verified editor; Share is not clicked.',
+        'Real browser runs need:',
         '  PUBLISHING_ADAPTER=playwright',
         '  CONTENT_DRY_RUN=false',
         '  npm start (engine running with an authenticated session)',
         '  --confirm',
+        '  Mobile web portrait only (390×844, header +)',
         '',
         'Default path enqueues content.publish (maxAttempts=1). Use --inline only with mock/dry-run.',
       ].join('\n'),
@@ -79,6 +81,7 @@ async function main() {
           [
             `Prepared Story ${result.content?.id} from ${result.media?.fileName}`,
             `Enqueued content.publish task ${result.task?.id}${dryRun ? ' (dry-run)' : ''}`,
+            'Queued — no publication outcome yet. The worker has not completed a publication.',
             result.duplicate ? 'Note: duplicate idempotency key — existing task reused' : null,
             'Inspect with: npm run story:status',
             'Jobs: npm run jobs',
@@ -96,6 +99,9 @@ async function main() {
         theme,
         [
           `Story publish finished: ${result.content?.status}`,
+          result.publicationOutcome ?? result.attempt?.publicationOutcome
+            ? `Publication outcome: ${result.publicationOutcome ?? result.attempt?.publicationOutcome}`
+            : null,
           result.attempt
             ? `Attempt: ${result.attempt.status} via ${result.attempt.adapter}`
             : null,
